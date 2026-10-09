@@ -30,3 +30,40 @@ test('redesign preserves hidden states, focus indicators, reduced motion, and mo
   assert.match(css, /prefers-reduced-motion:reduce/);
   assert.doesNotMatch(html, /(?:src|href)="https?:\/\//);
 });
+
+// These are source-layout contracts, not browser geometry assertions.
+function declarations(selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return [...css.matchAll(new RegExp(`${escaped}\\{([^}]*)\\}`, 'g'))].map(match => match[1]);
+}
+
+test('monitor and output share an independent sidebar rather than source-sized grid rows', () => {
+  const sidebar = html.slice(html.indexOf('<section class="center-column">'), html.indexOf('<details class="panel controls-panel">'));
+  assert.match(sidebar, /class="receiver panel"/);
+  assert.match(sidebar, /class="panel output-panel"/);
+  assert.doesNotMatch(sidebar, /class="panel presets-panel"/);
+  assert.match(declarations('.center-column')[0], /display:grid;grid-column:2;grid-row:1\/span 3;gap:inherit;min-width:0;align-self:start/);
+  assert.ok(declarations('.center-column').includes('grid-row:1/span 2'), 'tablet sidebar stays above full-width advanced controls');
+  for (const selector of ['.receiver', '.output-panel']) {
+    for (const rule of declarations(selector)) assert.doesNotMatch(rule, /grid-(?:row|column):/, `${selector} must flow inside the sidebar`);
+  }
+});
+
+test('monitor uses natural content height without stretch, clipping, or screen flex growth', () => {
+  assert.ok(declarations('.receiver').some(rule => /align-self:start/.test(rule)));
+  for (const selector of ['.receiver', '.screen']) {
+    for (const rule of declarations(selector)) {
+      assert.doesNotMatch(rule, /(?:^|;)(?:(?:min-|max-)?height|overflow(?:-y)?):/, `${selector} must remain content-sized at every breakpoint`);
+      assert.doesNotMatch(rule, /align-self:stretch|flex:(?:1|auto)(?:;|$)/);
+    }
+  }
+  assert.ok(declarations('.screen').some(rule => /flex:0 0 auto/.test(rule)));
+});
+
+test('mobile unwraps the sidebar and retains source, monitor, presets, output, advanced order', () => {
+  assert.ok(declarations('.center-column').includes('display:contents'));
+  assert.ok(declarations('.workbench').some(rule => /display:flex;flex-direction:column/.test(rule)));
+  ['.source-panel', '.receiver', '.presets-panel', '.output-panel', '.controls-panel'].forEach((selector, index) => {
+    assert.ok(declarations(selector).some(rule => new RegExp(`(?:^|;)order:${index + 1}(?:;|$)`).test(rule)), selector);
+  });
+});
