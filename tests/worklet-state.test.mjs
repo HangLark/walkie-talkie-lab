@@ -11,7 +11,7 @@ async function processorFactory() {
     constructor() { this.messages = []; this.port = { postMessage: m => this.messages.push(m) }; }
   }
   const code = (await readFile(new URL('../src/worklet.js', import.meta.url), 'utf8'))
-    .replace("import { RadioKernel } from './dsp.js?v=cue-variation-v1';", '');
+    .replace("import { RadioKernel } from './dsp.js?v=sound-profiles-v1';", '');
   vm.runInNewContext(code, { AudioWorkletProcessor, RadioKernel, sampleRate: rate,
     registerProcessor: (_name, cls) => { Processor = cls; } });
   return params => new Processor({ processorOptions: { params } });

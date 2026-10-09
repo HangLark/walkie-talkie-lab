@@ -1,4 +1,4 @@
-import { RadioKernel } from './dsp.js?v=cue-variation-v1';
+import { RadioKernel } from './dsp.js?v=sound-profiles-v1';
 import { encodeWav } from './wav.js';
 self.onmessage = ({ data }) => {
   try {

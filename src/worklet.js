@@ -1,4 +1,4 @@
-import { RadioKernel } from './dsp.js?v=cue-variation-v1';
+import { RadioKernel } from './dsp.js?v=sound-profiles-v1';
 class RadioProcessor extends AudioWorkletProcessor {
   constructor(options) { super(); this.kernel = new RadioKernel(sampleRate, options.processorOptions?.params, options.processorOptions?.seed); this.frames = 0; this.port.onmessage = ({data}) => { if (data.type === 'params') this.kernel.setParams(data.params); }; }
   process(inputs, outputs) {

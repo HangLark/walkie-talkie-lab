@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
-import {DEFAULTS,PRESETS} from '../src/dsp.js';
+import {DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel} from '../src/dsp.js';
 async function harness(){
  const elements=new Map(),workers=[],sources=[],timers=[];
  function element(){const handlers=new Map();return {style:{setProperty(){}},children:[],dataset:{},checked:false,disabled:false,value:0,classList:{add(){},remove(){},contains(){return false;},toggle(){}},addEventListener(n,f){handlers.set(n,f);},fire(n){return handlers.get(n)?.({target:this});},setAttribute(){},append(e){this.children.push(e);},querySelector(){return element();},getBoundingClientRect(){return {width:0};}};}
@@ -12,8 +12,8 @@ async function harness(){
  const context={currentTime:0,resume:async()=>{},createGain:()=>({gain:gain(),connect(){},disconnect(){}}),createBuffer:(channels,length,sampleRate)=>({length,sampleRate,duration:length/sampleRate,copyToChannel(){}}),createBufferSource:()=>{const s={connect(){},disconnect(){this.disconnected=true;},start(at,offset){this.offset=offset;},stop(){this.stopped=true;}};sources.push(s);return s;}};
  class Worker{constructor(){workers.push(this);}postMessage(data){this.sent=data;}terminate(){this.terminated=true;}}
  const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
- const scope={document,window:element(),DEFAULTS,PRESETS,Worker,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout:f=>{timers.push(f);return timers.length-1;},clearTimeout:i=>{timers[i]=null;},URL,Float32Array,Math};
- vm.runInNewContext(code+`\nglobalThis.api={prepareMatch,cancelComparison,checkComparison,playFile,stopPlayback,switchMode,sendParams,setup(c){context=c;monitorGain=c.createGain();fileBuffer={sampleRate:48000,duration:1,length:48000};monoSamples=new Float32Array(48000).fill(.1);},ready(){return !!comparison;},get params(){return params;},get worker(){return comparisonWorker;},get playing(){return playing;},get pausedAt(){return pausedAt;},setWorklet(w){worklet=w;}};`,scope);
+ const scope={document,window:element(),DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout:f=>{timers.push(f);return timers.length-1;},clearTimeout:i=>{timers[i]=null;},URL,Float32Array,Math};
+ vm.runInNewContext(code+`\nglobalThis.api={applyPreset,applyRF,prepareMatch,cancelComparison,checkComparison,playFile,stopPlayback,switchMode,sendParams,setup(c){context=c;monitorGain=c.createGain();fileBuffer={sampleRate:48000,duration:1,length:48000};monoSamples=new Float32Array(48000).fill(.1);},ready(){return !!comparison;},get params(){return params;},get worker(){return comparisonWorker;},get playing(){return playing;},get pausedAt(){return pausedAt;},setWorklet(w){worklet=w;}};`,scope);
  scope.api.setup(context);return {...scope,get,workers,sources,timers,context};
 }
 const readyData=()=>({data:{dry:new Float32Array(64800),wet:new Float32Array(64800),dryGain:.5,wetGain:1}});
@@ -56,3 +56,9 @@ test('rapid repeated toggles leave one active source and old async play cannot r
   const h=await harness();h.api.prepareMatch();await h.api.playFile();const pending=h.workers.at(-1);h.api.switchMode('mic');pending.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));
   assert.equal(h.api.playing,false);assert.equal(h.api.ready(),false);assert.equal(h.get('export').disabled,true);assert.equal(h.get('file-transport').hidden,true);
  });
+
+test('voice and RF profile changes refresh matched snapshots at the same position without changing take or other dimensions',async()=>{
+ const h=await harness();h.api.params.cueLevel=28;h.api.prepareMatch();const seed=h.workers.at(-1).sent.seed;h.workers.at(-1).onmessage(readyData());await h.api.playFile();h.context.currentTime=.37;
+ h.api.applyPreset('mini');assert.equal(h.api.pausedAt,.37);assert.equal(h.api.params.cueLevel,28);for(const f of h.timers.splice(0))f?.();const old=h.workers.at(-1);
+ h.api.applyRF('fringe');assert.ok(old.terminated);for(const f of h.timers.splice(0))f?.();const next=h.workers.at(-1);assert.equal(next.sent.seed,seed);assert.equal(next.sent.params.highpass,TIMBRE_PROFILES.mini.params.highpass);assert.equal(next.sent.params.quality,30);next.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));assert.equal(h.api.playing,true);assert.equal(h.sources.at(-1).offset,.37);
+});

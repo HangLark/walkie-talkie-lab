@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
-import {DEFAULTS,PRESETS} from '../src/dsp.js';
+import {DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel} from '../src/dsp.js';
 async function harness({cryptoAvailable=true}={}){
  let entropy=100;
  const elements=new Map(),workers=[],sources=[],processors=[],downloads=[];
@@ -13,22 +13,29 @@ async function harness({cryptoAvailable=true}={}){
  const buffer=(duration=10)=>({sampleRate:48000,duration,length:duration*48000,numberOfChannels:1,getChannelData:()=>new Float32Array(duration*48000).fill(.1)});
  const context={currentTime:0,resume:async()=>{},close(){},createGain:()=>({gain:gain(),connect(){},disconnect(){}}),createBuffer:(channels,length,sampleRate)=>({length,sampleRate,duration:length/sampleRate,copyToChannel(){},getChannelData:()=>new Float32Array(length)}),createMediaStreamSource:()=>({connect(){},disconnect(){}}),createBufferSource:()=>{const s={connect(){},disconnect(){this.disconnected=true;},start(at,offset){this.offset=offset;},stop(){this.stopped=true;}};sources.push(s);return s;}};
  class Worker{constructor(){workers.push(this);}postMessage(data){this.sent=data;}terminate(){this.terminated=true;}}
- class AudioWorkletNode{constructor(c,n,options){this.options=options;this.port={postMessage(){},close(){}};processors.push(this);}connect(){}disconnect(){this.disconnected=true;}}
+ class AudioWorkletNode{constructor(c,n,options){this.options=options;this.port={postMessage(message){this.lastMessage=message;},close(){}};processors.push(this);}connect(){}disconnect(){this.disconnected=true;}}
  const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
- const scope={crypto:cryptoAvailable?{getRandomValues(a){a[0]=++entropy;return a;}}:undefined,navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){},addEventListener(){}}]})}},document,window:{...element(),isSecureContext:true},DEFAULTS,PRESETS,Worker,AudioWorkletNode,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(){return 1;},clearTimeout(){},URL:class extends URL{static createObjectURL(){return 'blob:test';}static revokeObjectURL(){}},Blob,Float32Array,Math};
- vm.runInNewContext(code+`\nglobalThis.api={loadFile,createTakeSeed,demo,startMic,stopMic,prepareMatch,matchKey,checkComparison,ptt,get fileSeed(){return fileSeed;},get micSeed(){return micSeed;},applyPreset,playFile,stopPlayback,switchMode,setFile,exportWav,finishExport,setup(c,b){context=c;monitorGain=c.createGain();setFile(b,'original.wav');},get params(){return params;},get playing(){return playing;},get pausedAt(){return pausedAt;},get exportBusy(){return exportBusy;}};`,scope);
+ const scope={crypto:cryptoAvailable?{getRandomValues(a){a[0]=++entropy;return a;}}:undefined,navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){},addEventListener(){}}]})}},document,window:{...element(),isSecureContext:true},DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,AudioWorkletNode,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(){return 1;},clearTimeout(){},URL:class extends URL{static createObjectURL(){return 'blob:test';}static revokeObjectURL(){}},Blob,Float32Array,Math};
+ vm.runInNewContext(code+`\nglobalThis.api={loadFile,createTakeSeed,demo,startMic,stopMic,prepareMatch,matchKey,checkComparison,ptt,get fileSeed(){return fileSeed;},get micSeed(){return micSeed;},applyPreset,applyRF,updateControls,playFile,stopPlayback,switchMode,setFile,exportWav,finishExport,setup(c,b){context=c;monitorGain=c.createGain();setFile(b,'original.wav');},get params(){return params;},get playing(){return playing;},get pausedAt(){return pausedAt;},get exportBusy(){return exportBusy;}};`,scope);
  scope.api.setup(context,buffer());return {...scope,get,workers,sources,processors,downloads,context,buffer};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-test('QA: playing preset replaces whole processor at preserved position; paused preset stays paused',async()=>{
- const h=await harness();await h.api.playFile();h.context.currentTime=3.2;h.api.applyPreset('operator');await tick();
- assert.equal(h.api.playing,true);assert.equal(h.sources.at(-1).offset,3.2);assert.ok(h.sources[0].stopped);assert.ok(h.processors[0].disconnected);
- const applied=h.processors.at(-1).options.processorOptions.params;
- for(const key of ['perspective','radio','permit','quality','noise','squelch','highpass','lowpass'])assert.equal(applied[key],PRESETS.operator[key],key);
+test('QA: voice profile preserves active processor, position and unrelated dimensions; paused selection stays paused',async()=>{
+ const h=await harness();Object.assign(h.api.params,{perspective:'receiver',radio:'digital',quality:57,noise:29,squelch:23,cueLevel:31,tailMs:75,permit:'off',output:63,mix:0,vox:true,voxThreshold:-37});
+ const before={...h.api.params};await h.api.playFile();h.context.currentTime=3.2;h.api.applyPreset('mini');await tick();
+ assert.equal(h.api.playing,true);assert.equal(h.sources.length,1);assert.equal(h.processors.length,1);assert.ok(!h.sources[0].stopped);assert.ok(!h.processors[0].disconnected);
+ for(const key of Object.keys(before))assert.equal(h.api.params[key],TIMBRE_KEYS.includes(key)?TIMBRE_PROFILES.mini.params[key]:before[key],key);
+ assert.equal(h.processors[0].port.lastMessage.params.highpass,TIMBRE_PROFILES.mini.params.highpass);
  await h.api.playFile();const count=h.sources.length;h.api.applyPreset('patrol');await tick();assert.equal(h.sources.length,count);assert.equal(h.api.playing,false);assert.equal(h.api.pausedAt,3.2);
 });
-test('QA: rapid preset restart then source-mode switch cannot start old file audio',async()=>{
- const h=await harness();await h.api.playFile();h.context.currentTime=2;h.api.applyPreset('operator');h.api.applyPreset('patrol');h.api.switchMode('mic');await tick();
+test('QA: modified status and reset track tone only; RF changes are isolated and operator RF is inert',async()=>{
+ const h=await harness();h.api.params.radio='digital';h.api.params.cueLevel=24;h.api.applyRF('fringe');assert.equal(h.get('preset-state').textContent,'原始音色');
+ for(const [key,value] of Object.entries(CHANNEL_PROFILES.fringe.params))assert.equal(h.api.params[key],value);
+ h.api.params.drive=3;h.api.updateControls();assert.equal(h.get('preset-state').textContent,'音色已修改');h.get('reset').fire('click');assert.equal(h.get('preset-state').textContent,'原始音色');assert.equal(h.api.params.quality,30);assert.equal(h.api.params.radio,'digital');assert.equal(h.api.params.cueLevel,24);
+ h.api.params.perspective='operator';h.api.updateControls();h.api.applyRF('stable');assert.equal(h.api.params.quality,30);for(const id of ['quality','noise','squelch'])assert.equal(h.get(id).disabled,true);
+});
+test('QA: rapid profile selection then source-mode switch cannot start old file audio',async()=>{
+ const h=await harness();await h.api.playFile();h.context.currentTime=2;h.api.applyPreset('mini');h.api.applyPreset('patrol');h.api.switchMode('mic');await tick();
  assert.equal(h.api.playing,false);assert.ok(h.sources.every(s=>s.stopped));assert.equal(h.get('export').disabled,true);assert.equal(h.get('file-transport').hidden,true);
 });
 test('QA: replacing source cancels pending export and labels new source',async()=>{
@@ -41,11 +48,11 @@ test('QA: cancelled export replies cannot download or cancel a newer export',asy
  h.api.switchMode('mic');fresh.onmessage({data:{buffer:new ArrayBuffer(44)}});assert.equal(h.downloads.length,0);
 });
 
-test('take seed stays stable across file replay, resumed full preset, matching and export',async()=>{
+test('take seed stays stable across file replay, voice profile selection, matching and export',async()=>{
  const h=await harness(),seed=h.api.fileSeed;assert.equal(seed,101);
  await h.api.playFile();assert.equal(h.processors.at(-1).options.processorOptions.seed,seed);
  h.api.stopPlayback();await h.api.playFile();assert.equal(h.processors.at(-1).options.processorOptions.seed,seed);
- h.context.currentTime=2;h.api.applyPreset('operator');await tick();assert.equal(h.sources.at(-1).offset,2);assert.equal(h.processors.at(-1).options.processorOptions.seed,seed);
+ h.context.currentTime=2;h.api.applyPreset('mini');await tick();assert.equal(h.sources.at(-1).offset,0);assert.ok(!h.sources.at(-1).stopped);assert.equal(h.processors.at(-1).options.processorOptions.seed,seed);
  h.api.prepareMatch();assert.equal(h.workers.at(-1).sent.seed,seed);h.api.exportWav();assert.equal(h.workers.at(-1).sent.seed,seed);
  assert.equal(JSON.parse(h.api.matchKey()).seed,seed);
 });
@@ -59,7 +66,7 @@ test('source replacement and a newly generated demo renew seed and reject stale 
 test('each microphone session renews seed while PTT, parameter edits, and file return preserve correct scope',async()=>{
  const h=await harness(),fileSeed=h.api.fileSeed;h.api.switchMode('mic');await h.api.startMic();
  const first=h.api.micSeed,processor=h.processors.at(-1);assert.equal(processor.options.processorOptions.seed,first);assert.equal(h.get('monitor').checked,false);
- h.api.ptt(true);h.api.ptt(false);h.api.applyPreset('field');assert.equal(h.api.micSeed,first);assert.equal(h.processors.at(-1),processor);
+ h.api.ptt(true);h.api.ptt(false);h.api.applyPreset('dispatch');assert.equal(h.api.micSeed,first);assert.equal(h.processors.at(-1),processor);
  h.api.stopMic();await h.api.startMic();assert.notEqual(h.api.micSeed,first);assert.equal(h.get('monitor').checked,false);
  h.api.switchMode('file');assert.equal(h.api.fileSeed,fileSeed);await h.api.playFile();assert.equal(h.processors.at(-1).options.processorOptions.seed,fileSeed);
 });

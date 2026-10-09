@@ -1,5 +1,5 @@
 /** Shared, allocation-free per-sample radio sound-design kernel. Not a hardware/codec emulator. */
-export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 65, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 3, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, vox: false, gateDry: false, voxThreshold: -42, tx: true });
+export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 65, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 3, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, vox: false, gateDry: false, voxThreshold: -42, tx: true });
 export const PRESETS = Object.freeze({
   patrol: { name: '巡逻频道', description: '模拟接收端：清晰窄带语音、开台声与可调静噪尾音', ...DEFAULTS },
   operator: { name: '警务手台', description: '操作员监听：三段本机许可音 + 发话侧音；并非远端接收的提示音', ...DEFAULTS, perspective: 'operator', radio: 'digital', quality: 96, noise: 2, tailMs: 0, drive: 1.2 },
@@ -8,8 +8,25 @@ export const PRESETS = Object.freeze({
   fringe: { name: '边缘信号', description: '不规则衰落、静噪开合与嘶声', ...DEFAULTS, highpass: 380, lowpass: 2700, quality: 30, noise: 43, squelch: 22, drive: 1.8 },
   clean: { name: '近距直通', description: '强信号、低失真，保留语音动态', ...DEFAULTS, quality: 100, noise: 3, drive: 1.1, compression: 2.5, speaker: 1, leveler: 35 }
 });
+// Timbre is independent of transport, listening perspective, RF and operating cues.
+export const TIMBRE_KEYS = Object.freeze(['highpass','lowpass','drive','compression','leveler','emphasis','speaker','resonanceHz','resonanceQ','body']);
+const timbre = (name, tag, description, values) => Object.freeze({name, tag, description, params:Object.freeze(Object.fromEntries(TIMBRE_KEYS.map(key=>[key,values[key] ?? DEFAULTS[key]])))});
+export const TIMBRE_PROFILES = Object.freeze({
+  clean: timbre('清晰直通','CLEAR DIRECT','较宽频带、轻压缩与平直输出，保留说话的自然起伏',{highpass:220,lowpass:3800,drive:1,compression:1.5,leveler:20,emphasis:.3,speaker:0}),
+  patrol: timbre('经典手台','CLASSIC HANDHELD','中频靠前、适度压实，熟悉的窄带手台质感',{}),
+  mini: timbre('迷你喇叭','SMALL SPEAKER','薄而集中的中高频、明显的小喇叭共振',{highpass:650,lowpass:2450,drive:1.7,compression:4.5,leveler:60,emphasis:1.6,speaker:5.5,resonanceHz:1850,resonanceQ:1.8,body:-6}),
+  dispatch: timbre('温厚台站','WARM CONSOLE','保留更多低中频、较柔和的动态与宽缓共振',{highpass:180,lowpass:3200,drive:1.1,compression:2,leveler:35,emphasis:.5,speaker:1.8,resonanceHz:950,resonanceQ:.7,body:3.5}),
+  compact: timbre('紧实通话','COMPACT SPEECH','更稳定的语音电平、收紧低中频与清晰的字头；不模拟语音编解码器',{highpass:350,lowpass:2950,drive:1.15,compression:6.5,leveler:90,emphasis:.4,speaker:4.5,resonanceHz:2200,resonanceQ:.65,body:-4})
+});
+export const CHANNEL_PROFILES = Object.freeze({
+  stable:Object.freeze({name:'稳定',description:'强信号、少底噪',params:Object.freeze({quality:100,noise:3,squelch:18})}),
+  varying:Object.freeze({name:'起伏',description:'信号起伏，模拟渐增嘶声 / 数字式间断',params:Object.freeze({quality:62,noise:24,squelch:18})}),
+  fringe:Object.freeze({name:'临界',description:'明显衰落、可能静噪或断续',params:Object.freeze({quality:30,noise:43,squelch:22})})
+});
+export function applyTimbre(current,key) { return sanitizeParams({...current,...TIMBRE_PROFILES[key]?.params}); }
+export function applyChannel(current,key) { return sanitizeParams({...current,...CHANNEL_PROFILES[key]?.params}); }
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const ranges = { highpass: [150, 800], lowpass: [1600, 4200], drive: [1, 5], compression: [1, 8], leveler: [0, 100], emphasis: [0, 3], quality: [0, 100], noise: [0, 100], squelch: [0, 65], speaker: [0, 6], cueLevel: [0, 100], tailMs: [0, 200], output: [0, 100], mix: [0, 1], voxThreshold: [-65, -15] };
+const ranges = { highpass: [150, 800], lowpass: [1600, 4200], drive: [1, 5], compression: [1, 8], leveler: [0, 100], emphasis: [0, 3], quality: [0, 100], noise: [0, 100], squelch: [0, 65], speaker: [0, 6], resonanceHz: [800, 2400], resonanceQ: [.5, 3], body: [-9, 6], cueLevel: [0, 100], tailMs: [0, 200], output: [0, 100], mix: [0, 1], voxThreshold: [-65, -15] };
 const PARAM_KEYS = Object.keys(ranges);
 const PERMIT_FREQUENCIES = [910, 1210, 1510];
 export function sanitizeParams(params = {}, base = DEFAULTS) {
@@ -104,7 +121,7 @@ export class RadioKernel {
     this.openCue = { duration: .024, gain: .38, power: 2 };
     this.tailCue = { attack: .003, gain: .48, power: 1.5 };
     this.rate = sampleRate; this.target = sanitizeParams(params); this.p = { ...this.target }; this.seed = seed >>> 0 || 1;
-    this.hp2 = new Biquad(); this.lp2 = new Biquad(); this.presence = new Biquad(); this.hp = new Biquad(); this.lp = new Biquad(); this.noiseHP = new Biquad(); this.noiseLP = new Biquad(); this.color = new Biquad();
+    this.hp2 = new Biquad(); this.lp2 = new Biquad(); this.presence = new Biquad(); this.hp = new Biquad(); this.lp = new Biquad(); this.noiseHP = new Biquad(); this.noiseLP = new Biquad(); this.color = new Biquad(); this.bodyEQ = new Biquad();
     this.noiseScale = Math.sqrt(sampleRate/48000);
     this.noiseHP.configure('high', 650, sampleRate); this.noiseLP.configure('low', 3600, sampleRate);
     this.pre = this.de = this.env = this.rms = this.gate = this.fade = this.meterIn = this.meterOut = 0;
@@ -138,7 +155,7 @@ export class RadioKernel {
     return Math.round(this.rate*duration);
   }
   setParams(p) { this.target = sanitizeParams(p, this.target); }
-  configure() { this.hp.configure('high', this.p.highpass, this.rate); this.lp.configure('low', this.p.lowpass, this.rate); this.color.configure('peak', 1450, this.rate, this.p.speaker, 1.1); this.presence.configure('peak', 2350, this.rate, this.p.speaker*.45, 1.4); this.hp2.configure('high', this.p.highpass*.82, this.rate); this.lp2.configure('low', this.p.lowpass, this.rate); }
+  configure() { this.hp.configure('high', this.p.highpass, this.rate); this.lp.configure('low', this.p.lowpass, this.rate); this.color.configure('peak', this.p.resonanceHz, this.rate, this.p.speaker, this.p.resonanceQ); this.bodyEQ.configure('peak', 650, this.rate, this.p.body, .8); this.presence.configure('peak', 2350, this.rate, this.p.speaker*.45, 1.4); this.hp2.configure('high', this.p.highpass*.82, this.rate); this.lp2.configure('low', this.p.lowpass, this.rate); }
   processSample(input) {
     let x = Number.isFinite(input) ? clamp(input, -8, 8) : 0;
     const p = this.p, t = this.target;
@@ -194,6 +211,8 @@ export class RadioKernel {
     this.de += this.emphasisA*(dryEmphasis-this.de); x = dryEmphasis;
     if (this.burstRadio === 'digital' && !local) x = this.frames.tick(x, this.signal);
     x = this.presence.tick(this.color.tick(x*this.gate));
+    // Zero body gain is a true bypass, preserving the original default waveform.
+    if (p.body !== 0) x = this.bodyEQ.tick(x);
     let cue = 0;
     const age = this.txAge / this.rate;
     if (transmit && this.txAge >= 0) {

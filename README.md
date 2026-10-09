@@ -19,7 +19,7 @@ Opening `index.html` directly with `file://` is unsupported. AudioWorklet and mi
 ## Workflow
 
 1. Import a local WAV, MP3, M4A, OGG, or another format your browser can decode, or try the built-in synthetic test signal. The signal is deliberately not presented as a recording of a real person.
-2. Select one of six sound-design presets. Choose receiver vs operator perspective, analog vs digital-inspired behavior, local permit tone, cue level, and analog tail duration. Bandwidth, speech leveling, compression, preemphasis, saturation, RF quality, noise, squelch, speaker coloration and cue level update during playback. File auditions apply a complete preset, including perspective/style/permit, while preserving the current position and play/pause intent. Live microphone cue identity is captured at the next transmission.
+2. Select one of five **voice-only** profiles: 清晰直通, 经典手台, 迷你喇叭, 温厚台站 or 紧实通话. Each changes bandwidth, dynamics and speaker/body coloration only. Transmission mode (analog/digital-inspired), listening position (receiver/operator), RF conditions (stable/varying/fringe), cues, output, A/B and VOX remain independent. The visible “音色已修改” marker and “恢复当前音色” button apply only to voice settings. Ordinary file playback changes timbre without restarting the processor; matched A/B automatically rebuilds snapshots at the retained position/play intent. Held microphone PTT releases safely on profile selection; monitoring remains unchanged. See [profile definitions and limits](SOUND_PROFILES.md).
 3. Use the persistent audition bar to compare dry source (A) and processed radio (B), pause/resume, stop, seek, or loop while adjusting the sound. Listening volume is separate from the processing/output parameters.
 4. Export the complete input with the parameters captured when you clicked export. Export always uses the wet radio effect, current output volume, mono 16-bit PCM, the AudioContext sample rate, and a 350 ms release tail. Preview loop mode and dry A/B do not change the export. Conversion runs in a dedicated worker and can be cancelled.
 
@@ -35,7 +35,7 @@ Preparation is cancellable. Processing/output changes automatically refresh the 
 
 - Explicitly choose the microphone tab and start the microphone. Permission is never requested on page load.
 - Wear headphones first. Monitoring is **off by default**, including each microphone restart. There can still be dangerous feedback if you enable monitoring through speakers; bounded digital samples do not guarantee a safe physical volume.
-- To hear clear PTT cues, select **B 电台**, wear headphones at low volume, then explicitly enable **耳机监听**. With monitoring off, neither voice nor cues reach the speakers; meters can still move. **巡逻频道** gives analog receive opening/noise-tail cues; **警务手台** gives a synthesized local triple talk-permit and operator sidetone.
+- To hear clear PTT cues, select **B 电台**, wear headphones at low volume, then explicitly enable **耳机监听**. With monitoring off, neither voice nor cues reach the speakers; meters can still move. Choose **模拟窄带 + 远端接收** for analog receive opening/noise-tail cues, or **本机操作员** and a permit option for synthesized local talk-permit and operator sidetone. Voice profiles do not change those choices.
 - Hold PTT, or space when focus is not on another interactive control. PTT itself also supports space/Enter. Releasing, cancelling a pointer gesture, or losing focus ends transmission.
 - VOX is a separate input-level gate with a 250 ms hold, not RF squelch. It is only used for live microphone input. The dry microphone A/B path also respects PTT/VOX.
 - Stop releases every microphone track and closes monitoring. Switching source modes, hiding the page, and leaving the page also release the microphone. Returning requires an explicit restart.
@@ -43,7 +43,7 @@ Preparation is cancellable. Processing/output changes automatically refresh the 
 
 ## Signal model and limitations
 
-This is an artistic radio effect, **not** an exact model of a particular police, military, or commercial radio, nor a P25/DMR vocoder or interoperable radio transmitter. It does not transmit RF, tune frequencies, connect to radio networks, or intercept communications. Channel names are sound presets, not actual channels.
+This is an artistic radio effect, **not** an exact model of a particular police, military, or commercial radio, nor a P25/DMR vocoder or interoperable radio transmitter. It does not transmit RF, tune frequencies, connect to radio networks, or intercept communications. Voice profiles are sound-design choices, not actual radio channels or device identities.
 
 The shared DSP chain is:
 
@@ -54,8 +54,8 @@ mono average → wet-voice cue buffer → cascaded high-pass → bounded speech 
 → two speaker resonances → independent sample-clock cues → bounded output
 ```
 
-- Default bandwidth: 300–3000 Hz. Cascaded biquads provide stronger out-of-band rejection. Field preset: 450–2400 Hz. Two restrained speaker peaks at 1.45 and 2.35 kHz add small-loudspeaker coloration.
-- Speech leveler: one **语音稳幅** control (0–100%, default 65%; close-range preset 35%). A 12 ms power detector targets 0.075 RMS only above a conservative noise/activity floor. Internal gain is bounded to 0.65–3×; gain reduction takes 12 ms and gain increase 220 ms. Below the activity floor, gain cannot rise above unity and returns toward unity after speech. Low-level background is tracked conservatively, not removed. This is not a voice classifier; loud background can still trigger gain management. Zero bypasses level adjustment.
+- Default bandwidth: 300–3000 Hz. Cascaded biquads provide stronger out-of-band rejection. Profiles vary bandwidth and speaker/body coloration; see SOUND_PROFILES.md. The default classic profile retains restrained speaker peaks at 1.45 and 2.35 kHz.
+- Speech leveler: one **语音稳幅** control (0–100%, default 65%; other profiles vary). A 12 ms power detector targets 0.075 RMS only above a conservative noise/activity floor. Internal gain is bounded to 0.65–3×; gain reduction takes 12 ms and gain increase 220 ms. Below the activity floor, gain cannot rise above unity and returns toward unity after speech. Low-level background is tracked conservatively, not removed. This is not a voice classifier; loud background can still trigger gain management. Zero bypasses level adjustment.
 - Compressor: −20 dBFS envelope threshold, default 3.5:1 ratio, 4 ms attack, 90 ms release. These are tunable sound-design defaults, not hardware measurements.
 - Preemphasis and deemphasis use a matched one-pole/inverse pair. Saturation and channel damage between them introduce the intended coloration.
 - RF quality creates seeded, correlated slow fades (160 ms smoothing), faster flutter (18 ms smoothing and a modest 3–7 Hz component), and band-limited analog noise. Full quality is perfectly steady; analog voice remains near constant above the modeled receiver threshold, rather than amplitude-modulating every strong FM signal. These are qualitative channel approximations, not measured propagation/RSSI/SINAD or distance predictions. Carrier squelch has a 4-point hysteresis and 120 ms hold driven by simulated RF quality, independently of speech pauses.
@@ -81,7 +81,7 @@ US public-safety radio sound depends on system, programming and listening positi
 - [Codan P25 training guide via APCO](https://www.apcointl.org/~documents/docs/codan-tg-001-4-0-0-p25-training-guide/?layout=file): digital transmissions use protocol termination; this app does not turn that into an analog noise crash.
 - [W2SJW reference sound collection](https://w2sjw.com/radio_sounds.html): useful comparison material distinguishing local alerts, signaling and received audio. No recordings from this collection are bundled or copied.
 
-These documents support behavior distinctions, not our exact synthesis frequencies, durations, DSP fidelity or perceptual sound quality. No subjective realism certification is claimed. The existing two gentle speaker resonances remain a static sound-design approximation. A measured microphone/speaker impulse response and level-dependent loudspeaker model are deferred pending usable transfer data; no extra hardware model or speaker-volume control was added.
+These documents support behavior distinctions, not our exact synthesis frequencies, durations, DSP fidelity or perceptual sound quality. No subjective realism certification is claimed. The profile-dependent speaker resonances and broad body EQ remain static sound-design approximations. A measured microphone/speaker impulse response and level-dependent loudspeaker model are deferred pending usable transfer data; no extra hardware model or speaker-volume control was added.
 
 ## Project structure
 
