@@ -39,7 +39,7 @@
           <label class="toggle-row"><span>声控发射 VOX<small>用音量触发，250ms 保持，词间不会重复提示</small></span><input id="vox" type="checkbox" role="switch"><span class="switch"></span></label>
           <div class="compact-control"><label for="voxThreshold">声控阈值</label><output id="voxThreshold-value">−42 dB</output><input id="voxThreshold" type="range" min="-65" max="-15" value="-42" step="1"></div>
         </div>
-        <div class="privacy-note"><span aria-hidden="true">↳</span> 从一段人声开始，效果会更明显。没有音频也可以使用测试信号。</div>
+        <div class="privacy-note">建议使用人声试听 · 音频仅在本地处理</div>
       </section>
       <section class="panel presets-panel" aria-labelledby="preset-heading"><div class="section-head"><h2 id="preset-heading"><span class="section-number">02</span> 选择音色</h2><span class="mini-label">6 个频道预设</span></div><div id="presets" class="preset-grid"></div><p id="preset-description" class="preset-description"></p></section>
       <section class="center-column">
@@ -47,7 +47,7 @@
           <div class="receiver-top"><span class="device-label">信号监视器</span><span class="mini-label">LIVE SIGNAL</span></div>
           <div class="screen"><div class="screen-top"><span id="screen-mode">FILE / STANDBY</span><span class="screen-right"><span id="carrier-dot">●</span> <span id="carrier-text">待机</span></span></div><div class="frequency"><span id="screen-preset">巡逻频道</span><span class="channel-number">CH <b id="channel">01</b></span></div><div class="lcd-rule"></div><div class="signal-row"><span>RF QUALITY</span><div id="signal-bars" class="signal-bars" aria-label="模拟信号强度"></div><strong id="quality-screen">90%</strong></div><div class="screen-bottom"><span id="band-screen">300 — 3000 Hz</span><span id="radio-screen">ANALOG VOICE</span></div></div>
           <div class="meter-row"><span>IN</span><div class="meter-track"><div id="in-meter"></div></div><span id="in-db">−∞</span></div><div class="meter-row"><span>OUT</span><div class="meter-track"><div id="out-meter"></div></div><span id="out-db">−∞</span></div>
-          <div class="receiver-bottom"><span class="receiver-caption">窄带语音 / 模拟电台质感</span><span class="monitor-unit">dBFS</span></div>
+
         </div>
         <section class="panel output-panel" aria-labelledby="output-heading"><div class="section-head"><h2 id="output-heading"><span class="section-number">03</span> 对比与输出</h2><span class="mini-label">OUTPUT</span></div><div class="ab-controls"><div><strong>A / B 试听</strong><small>随时切换原声与电台音色</small></div><div class="segmented" role="group" aria-label="试听原声或效果"><button id="dry" aria-pressed="false">A 原声</button><button id="wet" class="selected" aria-pressed="true">B 电台</button></div></div><details class="comparison-tools"><summary>电平匹配 <span>进阶 A/B 对比</span></summary><button id="match-prepare" class="text-button">准备近似电平匹配</button><button id="match-off" class="text-button" hidden>取消 / 关闭匹配</button><p id="match-status" class="help" role="status">默认关闭；仅文件试听。</p><p class="help">固定 RMS 近似匹配，仅衰减；A 对齐 B 的语音延迟。非感知响度认证，不改变麦克风与导出。修改参数后需重新准备；匹配试听含 350ms 收尾，实时电平表停用。</p></details><div class="compact-control"><label for="output">输出音量</label><output id="output-value">80%</output><input id="output" type="range" min="0" max="100" step="1" value="80"></div><button id="export" class="export-button" disabled><span>↓</span> 导出 WAV <span class="format-tag">MONO / 16-BIT</span></button><button id="cancel-export" class="text-button" hidden>取消导出</button><p class="help">导出完整文件，始终使用电台效果与当前音量。单声道 PCM，含 350ms 收尾。</p></section>
       </section>
