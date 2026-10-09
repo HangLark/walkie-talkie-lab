@@ -22,4 +22,36 @@ for(const name of ['patrol','operator','digital','fringe']){
 }
 if(process.argv[3]){const baseline=await import(pathToFileURL(resolve(process.argv[3])));await render('baseline-patrol-synthetic',baseline.RadioKernel,baseline.PRESETS.patrol,speech);await render('baseline-patrol-silent-cues',baseline.RadioKernel,{...baseline.PRESETS.patrol,noise:0},silence);}
 await writeFile(resolve(directory,'measurements.json'),JSON.stringify(summary,null,2)+'\n');
+
+// Dynamics diagnostics are synthetic measurements, not intelligibility scores.
+const {SpeechLeveler,BurstFrameChannel,renderRadio}=await import('../src/dsp.js');
+const rms=a=>Math.sqrt(a.reduce((s,x)=>s+x*x,0)/a.length);
+const tone=(seconds,amplitude)=>Float32Array.from({length:Math.round(rate*seconds)},(_,i)=>amplitude*Math.sin(2*Math.PI*731*i/rate));
+const quiet=tone(2,.03),loud=tone(2,.3);
+const leveled=[quiet,loud].map(input=>{const k=new SpeechLeveler(rate);return Float32Array.from(input,x=>k.tick(x,100));});
+summary.dynamics={inputContrastDb:20*Math.log10(rms(loud)/rms(quiet)),leveledContrastDb:20*Math.log10(rms(leveled[1].slice(rate))/rms(leveled[0].slice(rate)))};
+const hiss=tone(2,.003),leveler=new SpeechLeveler(rate),hissOut=Float32Array.from(hiss,x=>leveler.tick(x,100));
+summary.dynamics.lowHissGainDb=20*Math.log10(rms(hissOut)/rms(hiss));
+summary.dynamics.digitalFrames={};
+for(const quality of [96,48,20]){
+ const channel=new BurstFrameChannel(rate,99);
+ for(let i=0;i<rate*20;i++)channel.tick(.1,quality);
+ summary.dynamics.digitalFrames[quality]={frames:channel.totalFrames,lost:channel.lostFrames,longestBurstFrames:channel.maxRun};
+}
+const varying=new Float32Array(rate*6);varying.set(quiet,0);varying.set(loud,rate*2);varying.set(hiss,rate*4);
+await writeFile(resolve(directory,'dynamics-dry.wav'),new Uint8Array(encodeWav(varying,rate)));
+async function diagnostics(label,module){
+ const params={...module.PRESETS.clean,quality:100,noise:0,cueLevel:0,tailMs:0};
+ const out=module.renderRadio(varying,rate,params,99);
+ await writeFile(resolve(directory,`${label}-dynamics.wav`),new Uint8Array(encodeWav(out,rate)));
+ const analog=module.renderRadio(speech,rate,{...params,radio:'analog'},99),digital=module.renderRadio(speech,rate,{...params,radio:'digital'},99);
+ const delta=digital.slice(rate/2,rate*2.5).map((x,i)=>x-analog[i+rate/2]);
+ summary.dynamics[label]={bodyContrastDb:20*Math.log10(rms(out.slice(rate*3,rate*4))/rms(out.slice(rate,rate*2))),strongDigitalVsAnalogDifferenceRms:rms(delta)};
+ await writeFile(resolve(directory,`${label}-digital-strong.wav`),new Uint8Array(encodeWav(digital,rate)));
+ const weak=module.renderRadio(varying,rate,{...params,radio:'digital',quality:30,squelch:0},99);
+ await writeFile(resolve(directory,`${label}-digital-weak.wav`),new Uint8Array(encodeWav(weak,rate)));
+}
+await diagnostics('current',{PRESETS,renderRadio});
+if(process.argv[3])await diagnostics('baseline',await import(pathToFileURL(resolve(process.argv[3]))));
+await writeFile(resolve(directory,'measurements.json'),JSON.stringify(summary,null,2)+'\n');
 console.log(`Wrote synthetic comparison WAVs and measurements to ${directory}`);

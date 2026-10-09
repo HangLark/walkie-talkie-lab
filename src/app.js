@@ -2,7 +2,7 @@ import { DEFAULTS, PRESETS } from './dsp.js';
 const $ = id => document.getElementById(id);
 let params = { ...DEFAULTS }, preset = 'patrol', mode = 'file', context, worklet, monitorGain, source, stream, fileBuffer, monoSamples, fileName = '', playing = false, startTime = 0, pausedAt = 0, micPending = false, micEpoch = 0, loadEpoch = 0, worker, exportBusy = false, initPromise, raf;
 const controls = [
-  { title: '音色 / TIMBRE', items: [ ['highpass','低频切除',150,800,10,'Hz','厚实','轻薄'], ['lowpass','高频截止',1600,4200,50,'Hz','收窄','明亮'], ['compression','压缩比例',1,8,.5,':1','自然','紧凑'], ['drive','饱和驱动',1,5,.1,'×','干净','粗粝'], ['emphasis','预加重',0,3,.1,'','柔和','锐利'] ] },
+  { title: '音色 / TIMBRE', items: [ ['highpass','低频切除',150,800,10,'Hz','厚实','轻薄'], ['lowpass','高频截止',1600,4200,50,'Hz','收窄','明亮'], ['leveler','语音稳幅',0,100,5,'%','关闭','均衡'], ['compression','压缩比例',1,8,.5,':1','自然','紧凑'], ['drive','饱和驱动',1,5,.1,'×','干净','粗粝'], ['emphasis','预加重',0,3,.1,'','柔和','锐利'] ] },
   { title: '信道 / CHANNEL', items: [ ['quality','信号质量',0,100,1,'%','远 / 衰落','近 / 稳定'], ['noise','底噪强度',0,100,1,'%','安静','嘶声'], ['squelch','静噪门限',0,65,1,'%','开放','严格'], ['speaker','喇叭染色',0,6,.5,'dB','平直','鼻音'] ] }
 ];
 const format = (value, unit) => `${Number.isInteger(value) ? value : value.toFixed(1)}${unit === 'Hz' ? ' Hz' : unit === 'dB' ? ' dB' : unit}`;
@@ -18,9 +18,10 @@ function status(text,error=false){$('status-text').textContent=text;$('status').
 function updateControls(){
   for(const id of ['perspective','radio','permit'])$(id).value=params[id];
   $('permit').disabled=params.perspective!=='operator';
+  for(const id of ['quality','noise','squelch'])$(id).disabled=params.perspective==='operator';
   $('tailMs').disabled=params.perspective!=='receiver'||params.radio!=='analog';
   $('radio-screen').textContent=params.radio==='digital'?'DIGITAL-INSPIRED':'ANALOG VOICE';
-  $('cue-help').textContent=params.perspective==='operator'?'本机许可音仅供操作员参考；非真实品牌音，远端通常听不到。许可音开启时语音缓冲 90ms，关闭时 24ms。':'接收端没有本机许可音。模拟模式有开台声与可调静噪尾音；数字风格干净关闭。';
+  $('cue-help').textContent=params.perspective==='operator'?'本机侧音不受远端信号、底噪与静噪影响；许可音非真实品牌音。许可音开启时语音缓冲 90ms，关闭时 24ms。':'接收端没有本机许可音。模拟模式有开台声与可调静噪尾音；数字风格干净关闭。';
   for(const group of controls)for(const [id,,,,,unit] of group.items){$(id).value=params[id];$(`${id}-value`).textContent=format(params[id],unit);}
   for(const id of ['cueLevel','tailMs']){$(id).value=params[id];$(`${id}-value`).textContent=`${params[id]}${id==='tailMs'?' ms':'%'}`;}
   $('output').value=params.output; $('output-value').textContent=`${params.output}%`; $('voxThreshold').value=params.voxThreshold;$('voxThreshold-value').textContent=`${params.voxThreshold} dB`; $('vox').checked=params.vox;

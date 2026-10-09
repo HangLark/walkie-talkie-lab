@@ -19,7 +19,7 @@ Opening `index.html` directly with `file://` is unsupported. AudioWorklet and mi
 ## Workflow
 
 1. Import a local WAV, MP3, M4A, OGG, or another format your browser can decode, or try the built-in synthetic test signal. The signal is deliberately not presented as a recording of a real person.
-2. Select one of six sound-design presets. Choose receiver vs operator perspective, analog vs digital-inspired behavior, local permit tone, cue level, and analog tail duration. Bandwidth, compression, preemphasis, saturation, RF quality, noise, squelch, speaker coloration and cue level update during playback. Perspective/style/permit identity is captured at the next transmission; stop and replay a file to apply those changes.
+2. Select one of six sound-design presets. Choose receiver vs operator perspective, analog vs digital-inspired behavior, local permit tone, cue level, and analog tail duration. Bandwidth, speech leveling, compression, preemphasis, saturation, RF quality, noise, squelch, speaker coloration and cue level update during playback. Perspective/style/permit identity is captured at the next transmission; stop and replay a file to apply those changes.
 3. Compare dry source (A) and processed radio (B), pause/resume, stop, or loop.
 4. Export the complete input with the parameters captured when you clicked export. Export always uses the wet radio effect, current output volume, mono 16-bit PCM, the AudioContext sample rate, and a 350 ms release tail. Preview loop mode and dry A/B do not change the export. Conversion runs in a dedicated worker and can be cancelled.
 
@@ -42,19 +42,20 @@ This is an artistic radio effect, **not** an exact model of a particular police,
 The shared DSP chain is:
 
 ```
-mono average → wet-voice cue buffer → cascaded high-pass → envelope compressor
+mono average → wet-voice cue buffer → cascaded high-pass → bounded speech leveler → envelope compressor
 → preemphasis → modest soft saturation → cascaded low-pass → channel
-→ matched deemphasis → digital-inspired texture (optional) → carrier squelch
+→ matched deemphasis → burst-frame channel (digital only) → carrier squelch
 → two speaker resonances → independent sample-clock cues → bounded output
 ```
 
 - Default bandwidth: 300–3000 Hz. Cascaded biquads provide stronger out-of-band rejection. Field preset: 450–2400 Hz. Two restrained speaker peaks at 1.45 and 2.35 kHz add small-loudspeaker coloration.
+- Speech leveler: one **语音稳幅** control (0–100%, default 65%; close-range preset 35%). A 12 ms power detector targets 0.075 RMS only above a conservative noise/activity floor. Internal gain is bounded to 0.65–3×; gain reduction takes 12 ms and gain increase 220 ms. Below the activity floor, gain cannot rise above unity and returns toward unity after speech. Low-level background is tracked conservatively, not removed. This is not a voice classifier; loud background can still trigger gain management. Zero bypasses level adjustment.
 - Compressor: −20 dBFS envelope threshold, default 3.5:1 ratio, 4 ms attack, 90 ms release. These are tunable sound-design defaults, not hardware measurements.
 - Preemphasis and deemphasis use a matched one-pole/inverse pair. Saturation and channel damage between them introduce the intended coloration.
-- RF quality creates seeded, irregular fades and band-limited noise. Carrier squelch has a 4-point hysteresis and 120 ms hold driven by simulated RF quality, independently of speech pauses.
+- RF quality creates seeded, correlated slow fades (160 ms smoothing), faster flutter (18 ms smoothing and a modest 3–7 Hz component), and band-limited analog noise. Full quality is perfectly steady; analog voice remains near constant above the modeled receiver threshold, rather than amplitude-modulating every strong FM signal. These are qualitative channel approximations, not measured propagation/RSSI/SINAD or distance predictions. Carrier squelch has a 4-point hysteresis and 120 ms hold driven by simulated RF quality, independently of speech pauses.
 - **Receiver / analog:** a 24 ms shaped opening burst and adjustable 0–200 ms filtered-noise release (110 ms default). Setting tail to zero approximates tail elimination rather than implying every analog system has a long crash. Noise gain is sample-rate normalized. Cue level is independent of channel-noise level and speech compression/deemphasis; output volume and dry/wet selection still apply.
-- **Operator:** optional synthesized single/triple local talk-permit, plus a subtle mechanical-style release click. These are deliberately approximate cues, not Motorola/Harris recordings, exact specified frequencies, or a universal transmitted roger beep. The operator monitor includes processed sidetone as a useful app audition aid; actual radios need not provide that sidetone.
-- **Digital-inspired receiver:** a brief opening transient and clean gated release, with no analog static tail or end beep. The optional voice texture blends mild quantization / 8 kHz sample-hold with the clean path; low RF quality introduces short frame-like dropouts. This is not IMBE, AMBE, P25, DMR, or a reconstruction of any codec.
+- **Operator:** optional synthesized single/triple local talk-permit, plus a subtle mechanical-style release click. These are deliberately approximate cues, not Motorola/Harris recordings, exact specified frequencies, or a universal transmitted roger beep. The operator monitor includes processed sidetone as a useful app audition aid; actual radios need not provide that sidetone. Local voice and permit cues bypass remote RF fading, noise, digital loss and receiver squelch. Their controls are disabled in operator perspective.
+- **Digital-inspired receiver:** a brief opening transient and clean gated release, with no analog static tail or end beep. Strong reception preserves the bandwidth-limited speech without mandatory quantization or sample-hold aliasing. Weak reception uses a seeded two-state burst-loss approximation at 20 ms frame intervals, with increasing entry/persistence probabilities below quality 62. The last good frame is repeated only briefly, decaying to zero within 35 ms; 2 ms crossfades soften loss, repeated-frame seams and recovery. Loss history resets for a fresh transmission so stale words do not return. There is no packet network or codec hidden behind this model. This is not IMBE, AMBE, P25, DMR, or a reconstruction of any codec.
 - Wet voice is buffered 24 ms (90 ms with operator permit enabled), then drains before the closing cue so the first and final transmitted samples survive. This adds latency to browser/device latency. Rapid re-key preserves queued voice and the previous buffer delay, replacing any pending end cue. VOX's 250 ms hang prevents cue retrigger between normal word gaps; a new phrase after hang gets a new cue.
 - Cue identity and release duration are captured at their respective transmission boundaries; numeric controls are smoothed over ~20 ms. Timing, filters and cue envelopes use the sample clock, not JavaScript timers.
 - Output uses soft saturation plus a defensive ±0.98 sample clamp. This is sample-peak protection, not a certified true-peak limiter; listening levels still require care.
@@ -74,7 +75,7 @@ US public-safety radio sound depends on system, programming and listening positi
 - [Codan P25 training guide via APCO](https://www.apcointl.org/~documents/docs/codan-tg-001-4-0-0-p25-training-guide/?layout=file): digital transmissions use protocol termination; this app does not turn that into an analog noise crash.
 - [W2SJW reference sound collection](https://w2sjw.com/radio_sounds.html): useful comparison material distinguishing local alerts, signaling and received audio. No recordings from this collection are bundled or copied.
 
-These documents support behavior distinctions, not our exact synthesis frequencies, durations, DSP fidelity or perceptual sound quality. No subjective realism certification is claimed.
+These documents support behavior distinctions, not our exact synthesis frequencies, durations, DSP fidelity or perceptual sound quality. No subjective realism certification is claimed. The existing two gentle speaker resonances remain a static sound-design approximation. A measured microphone/speaker impulse response and level-dependent loudspeaker model are deferred pending usable transfer data; no extra hardware model or speaker-volume control was added.
 
 ## Project structure
 

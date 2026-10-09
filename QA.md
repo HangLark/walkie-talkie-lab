@@ -1,5 +1,28 @@
 # Verification report
 
+## 2026-10-09 Speech dynamics / channel revision
+
+All edits, synthetic rendering and tests ran in the cloud workspace. No user computer, microphone, account/deployment configuration or runtime external dependency was used.
+
+### Executed
+
+- `npm run check`: **35 tests passed**, zero failures, static production build succeeded. All application and script `node --check` syntax checks also passed.
+- Ten new deterministic tests cover leveler gain bounds, quiet/loud contrast, silence and low-hiss behavior, transient attack, 8–192 kHz timing, transparent strong digital channel, seeded nonperiodic clustered loss, decaying concealment, continuous loss/recovery transitions, correlated analog RF, local sidetone independence from RF controls, and weak-digital block/offline parity.
+- `node scripts/render-fixtures.mjs test-results/dynamics /tmp/radio-dynamics-baseline.mjs` compares this revision to the immediately preceding DSP. Generated WAVs and measurements are synthetic only and remain ignored local test artifacts.
+- Synthetic 20 dB quiet/loud input contrast becomes **6.73 dB** through the standalone leveler at full strength; low-level hiss gain is **0 dB**. In the complete close-range preset, quiet/loud output contrast changes from **13.71 dB before → 8.84 dB now**, with its deliberately gentler 35% leveler.
+- At fixed quality and seed 99 over 1,000 frames, quality 96 loses **0 frames**, 48 loses **36**, and 20 loses **381** (longest weak burst 17 frames). These are model diagnostics, not real RF error rates. Concealment becomes silence after 35 ms, even during a longer burst.
+- Matched strong-channel analog/digital body difference changes from **0.02652 RMS before → 0 now** with identical timbre/noise/cue controls: mandatory sample-hold damage was removed. This demonstrates clean-channel transparency, not vocoder fidelity.
+- Existing monitoring-off defaults, PTT interruption/VOX safety, cue timing, dry A/B, worker adapters and source lifecycle tests remain passing.
+
+### Limits / next listening checks
+
+- No subjective headphone listening, real speech intelligibility or hardware-transfer measurement has been performed. Browser/device and microphone QA limitations below still apply.
+- Check quiet/loud phrases with leveler at 0, 65 and 100%; check soft consonants and pauses with a noisy recording. The simple activity detector is not noise suppression and can react to loud background sound.
+- Compare digital quality 96, 48 and 20 with squelch low enough to expose loss/concealment, then restore squelch. Long bad runs should decay to silence, not repeat a word indefinitely.
+- Operator RF/noise/squelch controls are disabled; local sidetone should remain unchanged by their retained values. Strong digital keeps radio bandlimiting, compression and speaker EQ but has no mandatory synthetic bit-crush.
+- Speaker coloration remains two static resonances. A measured or level-dependent loudspeaker model was deferred, not implemented or validated.
+- Publication of this revision was authorized by the user on 2026-10-09 after reviewing the assessment/design plan. Production deployment status is recorded in the repository’s GitHub Actions runs; the executed checks above are cloud-workspace tests.
+
 ## 2026-10-09 PTT / radio-behavior revision
 
 All work remained in the cloud workspace. No user computer, personal microphone, radio recording or RF service was accessed.

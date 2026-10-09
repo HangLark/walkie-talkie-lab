@@ -1,15 +1,15 @@
 /** Shared, allocation-free per-sample radio sound-design kernel. Not a hardware/codec emulator. */
-export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.35, compression: 3.5, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 3, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, vox: false, gateDry: false, voxThreshold: -42, tx: true });
+export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 65, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 3, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, vox: false, gateDry: false, voxThreshold: -42, tx: true });
 export const PRESETS = Object.freeze({
   patrol: { name: '巡逻频道', description: '模拟接收端：清晰窄带语音、开台声与可调静噪尾音', ...DEFAULTS },
-  operator: { name: '警务手台', description: '操作员监听：三段本机许可音 + 发话侧音；并非远端接收的提示音', ...DEFAULTS, perspective: 'operator', radio: 'digital', quality: 96, noise: 2, tailMs: 0, drive: 1.15 },
-  digital: { name: '数字警务', description: '数字风格近似：紧凑语音、干净收尾；非 P25 编解码器', ...DEFAULTS, radio: 'digital', quality: 96, noise: 2, highpass: 320, lowpass: 3200, drive: 1.15, compression: 4, speaker: 2.5, tailMs: 0 },
+  operator: { name: '警务手台', description: '操作员监听：三段本机许可音 + 发话侧音；并非远端接收的提示音', ...DEFAULTS, perspective: 'operator', radio: 'digital', quality: 96, noise: 2, tailMs: 0, drive: 1.2 },
+  digital: { name: '数字警务', description: '数字风格近似：紧凑语音、干净收尾；非 P25 编解码器', ...DEFAULTS, radio: 'digital', quality: 96, noise: 2, highpass: 320, lowpass: 3200, drive: 1.2, compression: 4, speaker: 2.5, tailMs: 0 },
   field: { name: '野外联络', description: '窄带喇叭音色，中等信号起伏', ...DEFAULTS, highpass: 450, lowpass: 2400, quality: 66, noise: 24, speaker: 3, drive: 2.1 },
   fringe: { name: '边缘信号', description: '不规则衰落、静噪开合与嘶声', ...DEFAULTS, highpass: 380, lowpass: 2700, quality: 30, noise: 43, squelch: 22, drive: 1.8 },
-  clean: { name: '近距直通', description: '强信号、低失真，保留语音动态', ...DEFAULTS, quality: 100, noise: 3, drive: 1.1, compression: 2.5, speaker: 1 }
+  clean: { name: '近距直通', description: '强信号、低失真，保留语音动态', ...DEFAULTS, quality: 100, noise: 3, drive: 1.1, compression: 2.5, speaker: 1, leveler: 35 }
 });
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const ranges = { highpass: [150, 800], lowpass: [1600, 4200], drive: [1, 5], compression: [1, 8], emphasis: [0, 3], quality: [0, 100], noise: [0, 100], squelch: [0, 65], speaker: [0, 6], cueLevel: [0, 100], tailMs: [0, 200], output: [0, 100], mix: [0, 1], voxThreshold: [-65, -15] };
+const ranges = { highpass: [150, 800], lowpass: [1600, 4200], drive: [1, 5], compression: [1, 8], leveler: [0, 100], emphasis: [0, 3], quality: [0, 100], noise: [0, 100], squelch: [0, 65], speaker: [0, 6], cueLevel: [0, 100], tailMs: [0, 200], output: [0, 100], mix: [0, 1], voxThreshold: [-65, -15] };
 const PARAM_KEYS = Object.keys(ranges);
 const PERMIT_FREQUENCIES = [910, 1210, 1510];
 export function sanitizeParams(params = {}, base = DEFAULTS) {
@@ -30,6 +30,73 @@ class Biquad {
   }
   tick(x) { const y = this.b0*x + this.b1*this.x1 + this.b2*this.x2 - this.a1*this.y1 - this.a2*this.y2; this.x2 = this.x1; this.x1 = x; this.y2 = this.y1; this.y1 = Number.isFinite(y) ? y : 0; return this.y1; }
 }
+// Bounded speech-level aid, not a speech recognizer or noise suppressor.
+export class SpeechLeveler {
+  constructor(rate) {
+    this.power = 0; this.noisePower = 1e-6; this.gain = 1;
+    this.detect = 1-Math.exp(-1/(.012*rate));
+    this.noiseTrack = 1-Math.exp(-1/(.5*rate));
+    this.reduce = 1-Math.exp(-1/(.012*rate));
+    this.raise = 1-Math.exp(-1/(.22*rate));
+    this.idle = 1-Math.exp(-1/(.3*rate));
+  }
+  tick(x, amount) {
+    this.power += (x*x-this.power)*this.detect;
+    // Estimate only low-level background, never learn sustained speech as noise.
+    if (this.power < .008**2) this.noisePower += (this.power-this.noisePower)*this.noiseTrack;
+    const active = this.power > Math.max(.009**2, this.noisePower*6.25);
+    const wanted = active ? clamp(.075/Math.sqrt(this.power+1e-12), .65, 3) : Math.min(1,this.gain);
+    const speed = wanted < this.gain ? this.reduce : active ? this.raise : this.idle;
+    this.gain += (wanted-this.gain)*speed;
+    return x*(1+(this.gain-1)*amount/100);
+  }
+}
+// Correlated slow shadowing plus modest faster flutter. Quality is an artistic
+// control, not RSSI/SINAD, distance, speed or a propagation measurement.
+export class CorrelatedRF {
+  constructor(rate, seed) {
+    this.rate=rate; this.seed=seed>>>0||1; this.count=0; this.slow=0; this.fast=0; this.target=0;
+    this.a=1-Math.exp(-1/(.16*rate)); this.b=1-Math.exp(-1/(.018*rate));
+    this.phase=this.random()*2*Math.PI; this.frequency=3+this.random()*4;
+  }
+  random() { let x=this.seed; x^=x<<13; x^=x>>>17; x^=x<<5; this.seed=x>>>0; return this.seed/4294967296; }
+  tick(quality) {
+    if (this.count--<=0) { this.target=(this.random()-.52)*2; this.fastTarget=this.random()*2-1; this.count=Math.round(this.rate*.04)-1; }
+    this.slow+=(this.target-this.slow)*this.a; this.fast+=(this.fastTarget-this.fast)*this.b;
+    this.phase+=2*Math.PI*this.frequency/this.rate; if(this.phase>2*Math.PI)this.phase-=2*Math.PI;
+    return clamp(quality+(100-quality)*(.85*this.slow+.13*this.fast+.08*Math.sin(this.phase)),0,100);
+  }
+}
+// Seeded two-state burst channel, 20 ms frames. Repeat only the last good frame
+// briefly, decay to silence, then crossfade recovery. No codec is simulated.
+export class BurstFrameChannel {
+  constructor(rate, seed) {
+    this.rate=rate; this.seed=seed>>>0||1;
+    this.good=new Float32Array(Math.ceil(rate*.02)); this.current=new Float32Array(this.good.length);
+    this.crossfade=Math.max(1,Math.round(rate*.002)); this.reset();
+  }
+  reset() { this.position=0; this.frames=0; this.clock=0; this.next=0; this.bad=false; this.lossSamples=0; this.goodLength=0; this.last=0; this.blend=0; this.blendFrom=0; this.lostFrames=0; this.totalFrames=0; this.maxRun=0; this.run=0; this.good.fill(0); this.current.fill(0); }
+  random() { let x=this.seed; x^=x<<13; x^=x>>>17; x^=x<<5; this.seed=x>>>0; return this.seed/4294967296; }
+  tick(x, quality) {
+    if(this.clock>=this.next) {
+      if(this.frames && !this.bad) { const temp=this.good; this.good=this.current; this.current=temp; this.goodLength=this.position; }
+      const previous=this.bad;
+      const severity=clamp((62-quality)/62,0,1);
+      this.bad=severity>0 && this.random()<(previous ? .30+.63*severity : .38*severity*severity);
+      this.totalFrames++; if(this.bad){this.lostFrames++;this.run++;this.maxRun=Math.max(this.maxRun,this.run);}else this.run=0;
+      if(previous!==this.bad || this.bad){this.blend=this.crossfade;this.blendFrom=this.last;}
+      if(!this.bad)this.lossSamples=0;
+      this.position=0; this.frames++; this.next=Math.round(this.frames*this.rate*.02);
+    }
+    let y=x;
+    if(this.bad) {
+      y=this.goodLength ? this.good[this.position%this.goodLength]*Math.max(0,1-this.lossSamples/(this.rate*.035)) : 0;
+      this.lossSamples++;
+    } else this.current[this.position]=x;
+    if(this.blend>0){const w=1-this.blend/this.crossfade;y=this.blendFrom*(1-w)+y*w;this.blend--;}
+    this.position++;this.clock++;this.last=y;return y;
+  }
+}
 export class RadioKernel {
   constructor(sampleRate = 48000, params = {}, seed = 0x72616469) {
     if (!Number.isFinite(sampleRate) || sampleRate < 8000 || sampleRate > 192000) throw new RangeError('Unsupported sample rate');
@@ -38,13 +105,13 @@ export class RadioKernel {
     this.noiseScale = Math.sqrt(sampleRate/48000);
     this.noiseHP.configure('high', 650, sampleRate); this.noiseLP.configure('low', 3600, sampleRate);
     this.pre = this.de = this.env = this.rms = this.gate = this.fade = this.meterIn = this.meterOut = 0;
-    this.qualityOffset = this.nextQuality = 0; this.carrier = false; this.hold = this.voxHold = this.tickCount = 0;
+    this.rf = new CorrelatedRF(sampleRate, seed ^ 0x4f391a); this.leveler = new SpeechLeveler(sampleRate); this.frames = new BurstFrameChannel(sampleRate, seed ^ 0x735abc); this.carrier = false; this.hold = this.voxHold = this.tickCount = 0;
     this.dryGate = 0; this.wasTransmit = false; this.signal = this.p.quality; this.smooth = 1 - Math.exp(-1 / (.02 * sampleRate));
-    this.signalSmooth = 1 - Math.exp(-1 / (.020823 * sampleRate)); this.fadeSmooth = 1 - Math.exp(-1 / (.010406 * sampleRate)); this.meterDecay = Math.exp(-1 / (.041656 * sampleRate));
+    this.fadeSmooth = 1 - Math.exp(-1 / (.010406 * sampleRate)); this.meterDecay = Math.exp(-1 / (.041656 * sampleRate));
     this.emphasisA = 1 - Math.exp(-2 * Math.PI * 900 / sampleRate);
     this.attack = Math.exp(-1 / (.004 * sampleRate)); this.release = Math.exp(-1 / (.09 * sampleRate));
     this.delayBuffer = new Float32Array(Math.ceil(sampleRate*.1)+1); this.delayWrite = 0; this.delaySamples = 0;
-    this.txAge = -1; this.releaseAge = -1; this.releaseLength = 0; this.burstCount = 0; this.endCount = 0; this.digitalHeld = 0; this.digitalPhase = 0;
+    this.txAge = -1; this.releaseAge = -1; this.releaseLength = 0; this.burstCount = 0; this.endCount = 0; 
     this.burstPerspective = this.p.perspective; this.burstRadio = this.p.radio; this.burstPermit = this.p.permit;
     this.configure();
   }
@@ -56,8 +123,7 @@ export class RadioKernel {
     const p = this.p, t = this.target;
     for (const key of PARAM_KEYS) p[key] += (t[key] - p[key]) * this.smooth;
     if ((this.tickCount++ & 63) === 0) this.configure();
-    if (this.tickCount >= this.nextQuality) { this.qualityOffset = (this.random() - .55) * (100-p.quality) * .72; this.nextQuality = this.tickCount + Math.floor(this.rate * (.045 + this.random() * .24)); }
-    this.signal += (clamp(p.quality + this.qualityOffset, 0, 100) - this.signal) * this.signalSmooth;
+    this.signal = this.rf.tick(p.quality);
     // Carrier quality drives squelch, independently of word pauses. 120 ms hold + hysteresis.
     if (this.signal > p.squelch + 4) { this.carrier = true; this.hold = this.rate * .12; }
     else if (this.signal < p.squelch) { if (--this.hold <= 0) this.carrier = false; }
@@ -73,7 +139,7 @@ export class RadioKernel {
       // Fast re-key keeps queued speech and its current delay rather than clearing a syllable.
       if (!pendingVoice) {
         this.delaySamples = Math.round(this.rate * (t.perspective === 'operator' && t.permit !== 'off' ? .09 : .024));
-        this.delayBuffer.fill(0); this.delayWrite = 0;
+        this.delayBuffer.fill(0); this.delayWrite = 0; this.frames.reset();
       }
     }
     if (this.wasTransmit && !transmit) {
@@ -82,14 +148,15 @@ export class RadioKernel {
     }
     this.wasTransmit = transmit;
     const draining = !transmit && this.releaseAge >= 0 && this.releaseAge < this.delaySamples;
-    const receiving = (transmit || draining) && this.carrier;
+    const local = this.burstPerspective === 'operator';
+    const receiving = (transmit || draining) && (local || this.carrier);
     const gateTarget = receiving ? 1 : 0;
     this.gate += (gateTarget - this.gate) * (1 - Math.exp(-1 / (this.rate * (gateTarget ? .003 : .006))));
     // Delay only wet voice, preserving the first syllable behind the opening cue.
     const read = (this.delayWrite - this.delaySamples + this.delayBuffer.length) % this.delayBuffer.length;
     this.delayBuffer[this.delayWrite] = transmit ? x : 0;
     x = this.delayBuffer[read]; this.delayWrite = (this.delayWrite+1) % this.delayBuffer.length;
-    x = this.hp2.tick(this.hp.tick(x));
+    x = this.leveler.tick(this.hp2.tick(this.hp.tick(x)), p.leveler);
     const absolute = Math.abs(x); const a = absolute > this.env ? this.attack : this.release; this.env = a*this.env + (1-a)*absolute;
     const over = Math.max(0, 20*Math.log10(this.env + 1e-12) + 20);
     x *= 10 ** (-over*(1-1/p.compression)/20) * 2.2;
@@ -97,21 +164,13 @@ export class RadioKernel {
     x = Math.tanh(x*p.drive) / Math.sqrt(p.drive);
     x = this.lp2.tick(this.lp.tick(x));
     const noise = this.noiseLP.tick(this.noiseHP.tick(this.random()*2-1)) * this.noiseScale;
-    const reception = clamp(this.signal / 32, 0, 1);
+    const reception = local || this.burstRadio === 'digital' ? 1 : clamp(this.signal / 32, 0, 1);
     this.fade += ((receiving ? reception : 0) - this.fade) * this.fadeSmooth;
-    x = x*this.fade + noise * (this.burstRadio === 'digital' ? 0 : p.noise/100) * (.025 + (1-this.signal/100)**2*.5);
+    x = x*this.fade + noise * (local || this.burstRadio === 'digital' ? 0 : p.noise/100) * (.025 + (1-this.signal/100)**2*.5);
     // Exact inverse of the one-pole preemphasis stage for the current amount.
     const dryEmphasis = (x + p.emphasis*(1-this.emphasisA)*this.de) / (1 + p.emphasis*(1-this.emphasisA));
     this.de += this.emphasisA*(dryEmphasis-this.de); x = dryEmphasis;
-    if (this.burstRadio === 'digital') {
-      // Deliberately a sound-design approximation: 8 kHz sample hold + mild quantization,
-      // not a vocoder, AMBE, IMBE or P25 implementation. Bad RF mutes instead of hissing.
-      this.digitalPhase += 8000/this.rate;
-      if (this.digitalPhase >= 1) { this.digitalPhase %= 1; this.digitalHeld = Math.round(x*512)/512; }
-      const frame = Math.floor(this.tickCount/(this.rate*.02));
-      const drop = this.signal < 42 && ((frame*17)%23)/23 > this.signal/42;
-      x = drop ? 0 : x*.45 + this.digitalHeld*.55;
-    }
+    if (this.burstRadio === 'digital' && !local) x = this.frames.tick(x, this.signal);
     x = this.presence.tick(this.color.tick(x*this.gate));
     let cue = 0;
     const age = this.txAge / this.rate;
