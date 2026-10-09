@@ -6,8 +6,15 @@ import {AnalogFM} from '../src/analog-fm.js';
 import {RadioKernel,renderRadio,DEFAULTS} from '../src/dsp.js';
 const golden=JSON.parse(readFileSync(new URL('./fixtures/static-fm-b9a10ad.json',import.meta.url)));
 const sha=a=>createHash('sha256').update(new Uint8Array(a.buffer,a.byteOffset,a.byteLength)).digest('hex');
-test('static propagation is bit-exact with 20 frozen b9a10ad renders including noise and tails',()=>{
- for(const {rate,quality,sha256} of golden.cases){const x=Float32Array.from({length:Math.round(rate*.08)},(_,n)=>.2*Math.sin(2*Math.PI*701*n/rate)+.05*Math.sin(2*Math.PI*2311*n/rate));assert.equal(sha(renderRadio(x,rate,{...DEFAULTS,quality,fmMonitor:true,tailMs:55},918273)),sha256,`${rate}/${quality}`);}
+test('static RF remains bit-exact with frozen b9a10ad when the new TX postfilter is instrumented out',()=>{
+ // This is a channel-regression isolation test, not an assertion that adding
+ // the new transmitter filter leaves the full application waveform unchanged.
+ for(const {rate,quality,sha256} of golden.cases){
+  const x=Float32Array.from({length:Math.round(rate*.08)},(_,n)=>.2*Math.sin(2*Math.PI*701*n/rate)+.05*Math.sin(2*Math.PI*2311*n/rate)),k=new RadioKernel(rate,{...DEFAULTS,quality,fmMonitor:true,tailMs:55},918273),out=new Float32Array(x.length+Math.round(rate*.35));
+  k.fm.txPostLimit.tick=x=>x;
+  for(let n=0;n<out.length;n++){if(n===x.length)k.setParams({tx:false});out[n]=k.processSample(x[n]||0);}
+  assert.equal(sha(out),sha256,`${rate}/${quality}`);
+ }
 });
 test('moving propagation does not change thermal-noise sequence and is seeded/partition exact',()=>{
  const a=new AnalogFM(48000,{cnrDb:10,seed:22}),b=new AnalogFM(48000,{cnrDb:10,seed:22,propagation:'moving'});let difference=0;

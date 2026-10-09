@@ -1,4 +1,4 @@
-import { renderRadio, sanitizeParams } from './dsp.js?v=fm-fading-v1';
+import { renderRadio, sanitizeParams } from './dsp.js?v=fm-transmitter-v1';
 
 /** Fixed, shared-mask RMS matching, not perceptual loudness or speech recognition. */
 export function prepareComparison(input, rate, settings, seed) {

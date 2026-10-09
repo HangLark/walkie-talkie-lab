@@ -1,6 +1,6 @@
-import { AnalogFM, qualityToCnrDb } from './analog-fm.js?v=fm-fading-v1';
+import { AnalogFM, qualityToCnrDb } from './analog-fm.js?v=fm-transmitter-v1';
 /** Shared, allocation-free per-sample approximate radio audio kernel. Not a hardware/codec emulator. */
-export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 0, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 0, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, fmMonitor: false, fmPropagation: 'static', vox: false, gateDry: false, voxThreshold: -42, tx: true });
+export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 0, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 0, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, fmMonitor: false, fmPropagation: 'static', txInputGainDb: 0, txMicAgc: false, vox: false, gateDry: false, voxThreshold: -42, tx: true });
 // Legacy stress-test configurations; not user-facing device models or calibrated presets.
 export const PRESETS = Object.freeze({
   patrol: { name: '巡逻频道', description: '模拟接收端：清晰窄带语音、开台声与可调静噪尾音', ...DEFAULTS },
@@ -25,13 +25,13 @@ export const CHANNEL_PROFILES = Object.freeze({
 export function applyTimbre(current,key) { return sanitizeParams({...current,...TIMBRE_PROFILES[key]?.params}); }
 export function applyChannel(current,key) { return sanitizeParams({...current,...CHANNEL_PROFILES[key]?.params}); }
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const ranges = { highpass: [150, 800], lowpass: [1600, 4200], drive: [1, 5], compression: [1, 8], leveler: [0, 100], emphasis: [0, 3], quality: [0, 100], noise: [0, 100], squelch: [0, 65], speaker: [0, 6], resonanceHz: [800, 2400], resonanceQ: [.5, 3], body: [-9, 6], cueLevel: [0, 100], tailMs: [0, 200], output: [0, 100], mix: [0, 1], voxThreshold: [-65, -15] };
+const ranges = { highpass: [150, 800], lowpass: [1600, 4200], drive: [1, 5], compression: [1, 8], leveler: [0, 100], emphasis: [0, 3], quality: [0, 100], noise: [0, 100], squelch: [0, 65], speaker: [0, 6], resonanceHz: [800, 2400], resonanceQ: [.5, 3], body: [-9, 6], cueLevel: [0, 100], tailMs: [0, 200], output: [0, 100], mix: [0, 1], txInputGainDb: [-12, 24], voxThreshold: [-65, -15] };
 const PARAM_KEYS = Object.keys(ranges);
 const PERMIT_FREQUENCIES = [910, 1210, 1510];
 export function sanitizeParams(params = {}, base = DEFAULTS) {
   const p = { ...base };
   for (const [key, range] of Object.entries(ranges)) if (Number.isFinite(params[key])) p[key] = clamp(params[key], ...range);
-  for (const key of ['vox', 'tx', 'gateDry', 'fmMonitor']) if (typeof params[key] === 'boolean') p[key] = params[key];
+  for (const key of ['vox', 'tx', 'gateDry', 'fmMonitor', 'txMicAgc']) if (typeof params[key] === 'boolean') p[key] = params[key];
   for (const [key, choices] of Object.entries({ perspective: ['receiver', 'operator'], radio: ['analog', 'digital'], permit: ['off', 'single', 'triple'], fmPropagation: ['static', 'moving'] })) if (choices.includes(params[key])) p[key] = params[key];
   return p;
 }
@@ -119,7 +119,7 @@ export class RadioKernel {
     this.cueSeed = ((seed >>> 0) ^ 0x51c0a7e3) >>> 0 || 1;
     this.openCue = { duration: .024, gain: .38, power: 2 };
     this.tailCue = { attack: .003, gain: .48, power: 1.5 };
-    this.fm = new AnalogFM(sampleRate, { seed: seed ^ 0x464d1234, propagation: params.fmPropagation }); this.fmDrainSamples = Math.ceil(sampleRate*.02); this.fmAcquire = 0; this.fmRxOpen = false; this.fmMonitorActive = false;
+    this.fm = new AnalogFM(sampleRate, { seed: seed ^ 0x464d1234, propagation: params.fmPropagation, txInputGainDb: params.txInputGainDb, txMicAgc: params.txMicAgc }); this.fmDrainSamples = Math.ceil(sampleRate*.02); this.fmAcquire = 0; this.fmRxOpen = false; this.fmMonitorActive = false;
     this.rate = sampleRate; this.target = sanitizeParams(params); this.p = { ...this.target }; this.seed = seed >>> 0 || 1;
     this.hp2 = new Biquad(); this.lp2 = new Biquad(); this.presence = new Biquad(); this.hp = new Biquad(); this.lp = new Biquad(); this.noiseHP = new Biquad(); this.noiseLP = new Biquad(); this.color = new Biquad(); this.bodyEQ = new Biquad();
     this.noiseScale = Math.sqrt(sampleRate/48000);
@@ -200,8 +200,9 @@ export class RadioKernel {
     x = this.delayBuffer[read]; this.delayWrite = (this.delayWrite+1) % this.delayBuffer.length;
     let noise = 0;
     if (analogReceiver) {
-      // Source leveling is optional; default zero preserves microphone dynamics.
-      x = this.leveler.tick(x, p.leveler);
+      // Dedicated TX mic gain/AGC only: legacy artistic SpeechLeveler is never
+      // stacked into the analog physical chain. Dry A and VOX remain raw input.
+      this.fm.setTransmitter(t.txInputGainDb,t.txMicAgc);
       this.fm.setCnrDb(qualityToCnrDb(p.quality));
       this.fm.setPropagation(t.fmPropagation);
       x = this.fm.processSample(x, transmit || draining);

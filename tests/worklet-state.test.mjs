@@ -11,7 +11,7 @@ async function processorFactory() {
     constructor() { this.messages = []; this.port = { postMessage: m => this.messages.push(m) }; }
   }
   const code = (await readFile(new URL('../src/worklet.js', import.meta.url), 'utf8'))
-    .replace("import { RadioKernel } from './dsp.js?v=fm-fading-v1';", '');
+    .replace("import { RadioKernel } from './dsp.js?v=fm-transmitter-v1';", '');
   vm.runInNewContext(code, { AudioWorkletProcessor, RadioKernel, sampleRate: rate,
     registerProcessor: (_name, cls) => { Processor = cls; } });
   return params => new Processor({ processorOptions: { params } });
@@ -102,4 +102,22 @@ test('worklet reports open-squelch independently of automatic carrier detection'
 
 test('worklet reports mean-channel propagation state and physical instantaneous CNR',async()=>{
  const create=await processorFactory(),p=create({...PRESETS.patrol,quality:35,fmPropagation:'moving',fmMonitor:true});process(p,new Float32Array(12000));const data=latest(p);assert.equal(data.fmPropagation,'moving');assert.ok(data.fmChannelPower>0);assert.ok(Math.abs(data.fmInstantCnrDb-(8.8+10*Math.log10(data.fmChannelPower)))<1e-8);
+});
+
+test('worklet TX telemetry reports and resets actual internal-sample window peaks without touching audio',async()=>{
+ const create=await processorFactory(),p=create({...PRESETS.patrol,quality:100,txInputGainDb:18,txMicAgc:true}),x=Float32Array.from({length:12000},(_,n)=>.4*Math.sin(n*.31));
+ const actual=process(p,x),expected=renderRadio(x,rate,{...PRESETS.patrol,quality:100,txInputGainDb:18,txMicAgc:true}).subarray(0,x.length);assert.deepEqual(actual,expected);
+ for(const meter of p.messages){assert.ok(meter.txDeviationPeakHz>=0&&meter.txDeviationPeakHz<=2500);assert.ok(meter.txAgcGainDb>=-12&&meter.txAgcGainDb<=6);assert.ok(meter.txLimiterFraction>=0&&meter.txLimiterFraction<=1);assert.ok(meter.txGuardFraction>=0&&meter.txGuardFraction<=1);assert.ok(Number.isFinite(meter.txInputRms));}
+ assert.ok(p.messages.some(m=>m.txDeviationPeakHz===2500));
+ p.port.onmessage({data:{type:'params',params:{tx:false}}});process(p,new Float32Array(rate));assert.equal(latest(p).txDeviationPeakHz,0);assert.equal(latest(p).txLimiterFraction,0);assert.equal(latest(p).txGuardFraction,0);
+ for(const settings of [{perspective:'operator'},{radio:'digital'}]){const alternate=create({...PRESETS.patrol,...settings,txInputGainDb:24,txMicAgc:true});process(alternate,x);assert.equal(latest(alternate).txDeviationPeakHz,0);assert.equal(latest(alternate).txAgcGainDb,0);}
+});
+
+test('live worklet TX gain and AGC timeline matches the offline kernel through release',async()=>{
+ const create=await processorFactory(),settings={...PRESETS.patrol,quality:35,fmMonitor:true,fmPropagation:'moving'},p=create(settings),offline=new RadioKernel(rate,settings),events=new Map([[64,{txInputGainDb:24}],[128,{txMicAgc:true}],[192,{txInputGainDb:-12}],[256,{txMicAgc:false}],[320,{tx:false}]]);
+ for(let block=0;block<470;block++){
+  if(events.has(block)){const params=events.get(block);p.port.onmessage({data:{type:'params',params}});offline.setParams(params);}
+  const x=Float32Array.from({length:128},(_,n)=>.1*Math.sin((block*128+n)*.13)),out=new Float32Array(128);p.process([[x]],[[out]]);assert.deepEqual(out,offline.process(x));
+ }
+ assert.equal(p.kernel.wasTransmit,false);assert.equal(p.kernel.burstCount,1);assert.equal(p.kernel.endCount,1);
 });

@@ -1,4 +1,4 @@
-import { FlatFading } from './rf-fading.js?v=fm-fading-v1';
+import { FlatFading } from './rf-fading.js?v=fm-transmitter-v1';
 /** Narrowband FM complex-baseband link. No RF hardware, device or codec emulation.
  * See ANALOG_FM_MODEL.md for units, noise reference, approximations and sources. */
 const TAU = 2 * Math.PI;
@@ -15,6 +15,47 @@ class Butterworth4 {
   constructor(kind, hz, rate) { this.a = new Biquad(kind,hz,rate,.541196100146197); this.b = new Biquad(kind,hz,rate,1.306562964876377); }
   tick(x) { return this.b.tick(this.a.tick(x)); }
 }
+class Butterworth6 {
+  constructor(hz, rate) { this.a = new Biquad('low',hz,rate,.5176380902050415); this.b = new Biquad('low',hz,rate,Math.SQRT1_2); this.c = new Biquad('low',hz,rate,1.9318516525781366); }
+  tick(x) { return this.c.tick(this.b.tick(this.a.tick(x))); }
+}
+/** Generic design assumptions, not recovered manufacturer settings. RMS is
+ * referenced to normalized digital amplitude 1, never sound-pressure level.
+ * The -12/+6 dB bounds are mechanism anchors from Motorola CPS analog Mic AGC;
+ * the target, detector, timing and low-energy policy are original choices. */
+export const TX_AUDIO_MODEL = Object.freeze({inputGainMinDb:-12,inputGainMaxDb:24,agcMinDb:-12,agcMaxDb:6,agcTargetRms:.25,detectorSeconds:.02,attackSeconds:.01,recoverySeconds:.25,quietHoldSeconds:.1,quietReturnSeconds:.3,activeRms:.01,inactiveRms:10**(-42/20),postLimitCutoffHz:4500});
+export class AnalogMicAGC {
+  constructor(rate, enabled=false) {
+    this.power=0;this.gainDb=0;this.appliedGainDb=0;this.active=false;this.quietSamples=0;this.frozen=true;this.mix=enabled?1:0;
+    this.detect=1-Math.exp(-1/(TX_AUDIO_MODEL.detectorSeconds*rate));
+    this.attack=1-Math.exp(-1/(TX_AUDIO_MODEL.attackSeconds*rate));
+    this.recover=1-Math.exp(-1/(TX_AUDIO_MODEL.recoverySeconds*rate));
+    this.quietReturn=1-Math.exp(-1/(TX_AUDIO_MODEL.quietReturnSeconds*rate));
+    this.toggle=1-Math.exp(-1/(.01*rate));this.quietHold=Math.ceil(TX_AUDIO_MODEL.quietHoldSeconds*rate);
+  }
+  tick(x, enabled, carrier=true) {
+    this.frozen=!carrier;
+    // Only TX speech reaches this detector. Carrier-off freezes the controller
+    // after buffered speech drains; receive hiss and RF tails never enter it.
+    if(carrier) {
+      this.power+=(x*x-this.power)*this.detect;
+      if(this.power>=TX_AUDIO_MODEL.activeRms**2)this.active=true;
+      else if(this.power<TX_AUDIO_MODEL.inactiveRms**2)this.active=false;
+      if(this.active) {
+        this.quietSamples=0;
+        const wanted=clamp(20*Math.log10(TX_AUDIO_MODEL.agcTargetRms/Math.sqrt(this.power)),TX_AUDIO_MODEL.agcMinDb,TX_AUDIO_MODEL.agcMaxDb);
+        this.gainDb+=(wanted-this.gainDb)*(wanted<this.gainDb?this.attack:this.recover);
+      } else if(++this.quietSamples>=this.quietHold && this.gainDb>0) this.gainDb+=(0-this.gainDb)*this.quietReturn;
+    }
+    this.gainDb=clamp(this.gainDb,TX_AUDIO_MODEL.agcMinDb,TX_AUDIO_MODEL.agcMaxDb);
+    // A mode change is click-smoothed. An always-disabled controller is an exact
+    // unity bypass, and disabling does not abruptly erase an applied gain.
+    const target=enabled?1:0;this.mix+=(target-this.mix)*this.toggle;
+    if(Math.abs(target-this.mix)<1e-9)this.mix=target;
+    this.appliedGainDb=this.gainDb*this.mix;
+    return this.appliedGainDb===0?x:x*10**(this.appliedGainDb/20);
+  }
+}
 function lowpassFIR(length, cutoff, shift = 0) {
   const h = new Float64Array(length); let sum = 0;
   for(let i=0;i<length;i++) { const t=i-(length-1)/2+shift; const sinc = Math.abs(t)<1e-12 ? 2*cutoff : Math.sin(TAU*cutoff*t)/(Math.PI*t); h[i] = sinc*(.42-.5*Math.cos(TAU*i/(length-1))+.08*Math.cos(2*TAU*i/(length-1))); sum+=h[i]; }
@@ -25,7 +66,13 @@ function lowpassFIR(length, cutoff, shift = 0) {
  * 100 means a mathematical noiseless link. Intermediate values are CNR dB. */
 export function qualityToCnrDb(quality) { return quality >= 99.999 ? Infinity : -8 + 48*clamp(Number.isFinite(quality)?quality:0,0,100)/100; }
 export class AnalogFM {
-  constructor(sampleRate = 48000, {cnrDb = Infinity, seed = 0x464d7266, propagation = 'static'} = {}) {
+  /** Digital input convention: source samples use full-scale peak 1. At 0 dB
+   * input gain and AGC off, a settled 1 kHz sine of peak A commands about
+   * 2500*A Hz peak deviation before saturation (actual filters slightly reduce
+   * it). RMS dB is 20*log10(rms/1): a peak-1 sine is -3.0103 dB. There is no
+   * inferred microphone SPL/sensitivity, file normalization or makeup gain.
+   * Explicit file calibration, when chosen, supplies the same input-gain knob. */
+  constructor(sampleRate = 48000, {cnrDb = Infinity, seed = 0x464d7266, propagation = 'static', txInputGainDb = 0, txMicAgc = false} = {}) {
     if(!Number.isFinite(sampleRate)||sampleRate<8000||sampleRate>192000) throw new RangeError('FM audio rate must be 8000–192000 Hz');
     this.sampleRate=sampleRate; this.oversample=Math.ceil(48000/sampleRate); this.basebandRate=sampleRate*this.oversample;
     this.deviationHz=2500; this.channelCutoffHz=6000; this.deemphasisSeconds=.00075;
@@ -34,6 +81,17 @@ export class AnalogFM {
     this.propagationMode=propagation==='moving'?'moving':'static';this.propagationMix=this.propagationMode==='moving'?1:0;
     this.propagationStep=1/(.05*r);this.propagationPower=1;this.instantaneousCnrDb=cnrDb;
     this.txHigh=new Biquad('high',300,r); this.txLow=new Butterworth4('low',3000,r);
+    // Preserve the pre-limiter speech bandpass. The additional post-limiter
+    // filter suppresses newly generated harmonics; its overshoot is guarded.
+    // This efficient IIR is an assumption, not the NTIA report's windowed FIR
+    // or proof of a regulatory occupied-bandwidth mask. The final guard may
+    // reintroduce harmonics; both limiter fractions are separately measured.
+    this.txPostLimit=new Butterworth6(TX_AUDIO_MODEL.postLimitCutoffHz,r);
+    this.txMicAgc=txMicAgc===true;this.txAgc=new AnalogMicAGC(r,this.txMicAgc);
+    this.txInputGainDb=clamp(Number.isFinite(txInputGainDb)?txInputGainDb:0,TX_AUDIO_MODEL.inputGainMinDb,TX_AUDIO_MODEL.inputGainMaxDb);
+    this.txInputGainTargetDb=this.txInputGainDb;this.txInputGain=10**(this.txInputGainDb/20);this.txGainSmooth=1-Math.exp(-1/(.02*sampleRate));
+    this.txPreLimit=0;this.txPostLimitValue=0;this.txLimited=false;this.txGuardLimited=false;
+    this.txDeviationPeakHz=0;this.txMeterSamples=0;this.txLimitedSamples=0;this.txGuardLimitedSamples=0;
     this.rxI=new Butterworth4('low',6000,r); this.rxQ=new Butterworth4('low',6000,r);
     this.audioHigh=new Biquad('high',300,r); this.audioLow=new Butterworth4('low',3000,r); this.detectorHigh=new Butterworth4('high',4500,r);
     // Measure discrete impulse energy; for complex white noise this is the
@@ -62,14 +120,23 @@ export class AnalogFM {
     this.noiseStd=db===Infinity?0:Math.sqrt(10**(-this.cnrDb/10)/(2*this.channelNoiseFraction));
   }
   setPropagation(mode) { if(mode==='static'||mode==='moving')this.propagationMode=mode; }
+  setTransmitter(inputGainDb,micAgc) {
+    if(Number.isFinite(inputGainDb))this.txInputGainTargetDb=clamp(inputGainDb,TX_AUDIO_MODEL.inputGainMinDb,TX_AUDIO_MODEL.inputGainMaxDb);
+    if(typeof micAgc==='boolean')this.txMicAgc=micAgc;
+  }
+  resetTxMeter() { this.txDeviationPeakHz=0;this.txMeterSamples=0;this.txLimitedSamples=0;this.txGuardLimitedSamples=0; }
   random() { let x=this.seed; x^=x<<13; x^=x>>>17; x^=x<<5; this.seed=x>>>0; return (this.seed+.5)/4294967296; }
   /** One internal complex sample. carrier=false removes carrier before the
    * channel; finite CNR still supplies thermal noise. CNR references carrier=1. */
   basebandSample(audio, carrier=true) {
-    const speech=this.txLow.tick(this.txHigh.tick(audio));
+    const speech=this.txAgc.tick(this.txLow.tick(this.txHigh.tick(audio)),this.txMicAgc,carrier);
     const emphasized=(speech-this.emphasisPole*this.prePrevious)/((1-this.emphasisPole)*this.emphasisNorm);
     this.prePrevious=speech;
-    this.instantaneousDeviationHz=clamp(emphasized,-1,1)*this.deviationHz;
+    this.txPreLimit=emphasized;this.txLimited=Math.abs(emphasized)>1;
+    this.txPostLimitValue=this.txPostLimit.tick(clamp(emphasized,-1,1));
+    this.txGuardLimited=Math.abs(this.txPostLimitValue)>1;
+    this.instantaneousDeviationHz=clamp(this.txPostLimitValue,-1,1)*this.deviationHz;
+    if(carrier){this.txDeviationPeakHz=Math.max(this.txDeviationPeakHz,Math.abs(this.instantaneousDeviationHz));this.txMeterSamples++;if(this.txLimited)this.txLimitedSamples++;if(this.txGuardLimited)this.txGuardLimitedSamples++;}
     this.phase+=TAU*this.instantaneousDeviationHz/this.basebandRate;
     if(this.phase>Math.PI)this.phase-=TAU; else if(this.phase< -Math.PI)this.phase+=TAU;
     let i=carrier?Math.cos(this.phase):0, q=carrier?Math.sin(this.phase):0;
@@ -102,7 +169,8 @@ export class AnalogFM {
     return this.audioLow.tick(this.audioHigh.tick(this.deState));
   }
   processSample(input, carrier=true) {
-    const x=Number.isFinite(input)?clamp(input,-8,8):0;
+    if(this.txInputGainDb!==this.txInputGainTargetDb){this.txInputGainDb+=(this.txInputGainTargetDb-this.txInputGainDb)*this.txGainSmooth;if(Math.abs(this.txInputGainDb-this.txInputGainTargetDb)<1e-7)this.txInputGainDb=this.txInputGainTargetDb;this.txInputGain=10**(this.txInputGainDb/20);}
+    const x=(Number.isFinite(input)?clamp(input,-8,8):0)*this.txInputGain;
     if(this.oversample===1) return clamp(this.basebandSample(x,carrier),-2,2);
     this.inputHistory[this.inputPosition]=x;
     let result=0;

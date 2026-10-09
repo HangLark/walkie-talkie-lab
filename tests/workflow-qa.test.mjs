@@ -16,7 +16,7 @@ async function harness({cryptoAvailable=true,fetchImpl}={}){
  class AudioWorkletNode{constructor(c,n,options){this.options=options;this.port={postMessage(message){this.lastMessage=message;},close(){}};processors.push(this);}connect(){}disconnect(){this.disconnected=true;}}
  const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
  const scope={fetch:fetchImpl,AbortController,crypto:cryptoAvailable?{getRandomValues(a){a[0]=++entropy;return a;}}:undefined,navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){},addEventListener(){}}]})}},document,window:{...element(),isSecureContext:true},DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,AudioWorkletNode,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(){return 1;},clearTimeout(){},URL:class extends URL{static createObjectURL(){return 'blob:test';}static revokeObjectURL(){}},Blob,Float32Array,Math};
- vm.runInNewContext(code+`\nglobalThis.api={controls,format,cnrLabel,meter,ensureAudio,resetContext(){context=null;initPromise=null;},loadFile,createTakeSeed,demo,humanDemo,startMic,stopMic,prepareMatch,matchKey,checkComparison,ptt,get fileSeed(){return fileSeed;},get micSeed(){return micSeed;},applyPreset,applyRF,updateControls,playFile,stopPlayback,switchMode,setFile,exportWav,finishExport,setup(c,b){context=c;monitorGain=c.createGain();setFile(b,'original.wav');},get params(){return params;},get playing(){return playing;},get pausedAt(){return pausedAt;},get exportBusy(){return exportBusy;}};`,scope);
+ vm.runInNewContext(code+`\nglobalThis.api={controls,format,cnrLabel,meter,calibrateInput,undoInputCalibration,ensureAudio,resetContext(){context=null;initPromise=null;},loadFile,createTakeSeed,demo,humanDemo,startMic,stopMic,prepareMatch,matchKey,checkComparison,ptt,get fileSeed(){return fileSeed;},get micSeed(){return micSeed;},applyPreset,applyRF,updateControls,playFile,stopPlayback,switchMode,setFile,exportWav,finishExport,setup(c,b){context=c;monitorGain=c.createGain();setFile(b,'original.wav');},get params(){return params;},get playing(){return playing;},get pausedAt(){return pausedAt;},get exportBusy(){return exportBusy;}};`,scope);
  scope.api.setup(context,buffer());return {...scope,get,workers,sources,processors,downloads,context,buffer};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
@@ -132,8 +132,8 @@ test('QA: latest human demo wins and late decoding cannot replace a local import
 });
 
 test('QA: analog FM fixed-chain controls are visibly inactive and other paths regain their parameters',async()=>{
- const h=await harness();h.api.updateControls();for(const key of ['highpass','lowpass','drive','compression','emphasis','noise','cueLevel'])assert.equal(h.get(key).disabled,true,key);
- assert.match(h.get('rf-help').textContent,/35.2 dB/);assert.match(h.get('band-screen').textContent,/固定/);assert.match(h.get('parameter-help').textContent,/灰色参数不参与/);
+ const h=await harness();h.api.updateControls();for(const key of ['highpass','lowpass','drive','compression','emphasis','leveler','noise','cueLevel'])assert.equal(h.get(key).disabled,true,key);
+ assert.match(h.get('rf-help').textContent,/35.2 dB/);assert.match(h.get('band-screen').textContent,/固定/);assert.match(h.get('parameter-help').textContent,/灰色旧参数不参与/);
  h.api.params.quality=100;h.api.updateControls();assert.match(h.get('rf-help').textContent,/无噪声极限/);
  h.api.params.radio='digital';h.api.updateControls();for(const key of ['highpass','lowpass','drive','compression','emphasis','noise'])assert.equal(h.get(key).disabled,false,key);
  h.api.params.perspective='operator';h.api.updateControls();assert.equal(h.get('noise').disabled,true);assert.equal(h.get('cueLevel').disabled,false);
@@ -191,4 +191,35 @@ test('QA: moving main signal bars follow instantaneous telemetry while mean slid
  report(16);assert.equal(h.get('quality-screen').textContent,'16.0 dB');assert.equal(h.get('signal-bars').children.filter(x=>x.classList.contains('on')).length,6);assert.equal(h.api.params.quality,35);assert.equal(h.get('quality-value').textContent,'8.8 dB');
  report(Infinity);assert.equal(h.get('quality-screen').textContent,'无噪声');assert.equal(h.get('signal-bars').children.filter(x=>x.classList.contains('on')).length,12);
  h.api.meter({input:0,output:0,signal:35,transmitting:false,fmRxOpen:false,fmInstantCnrDb:16});assert.equal(h.get('quality-screen').textContent,'—');assert.equal(h.get('signal-bars').children.filter(x=>x.classList.contains('on')).length,0);
+});
+
+test('QA: transmitter controls stay opt-in and use actual model deviation telemetry',async()=>{
+ const h=await harness();h.api.updateControls();assert.equal(h.get('txInputGainDb').value,0);assert.equal(h.get('tx-mic-agc').checked,false);assert.match(h.get('tx-input-help').textContent,/未校准假设/);const seed=h.api.fileSeed;
+ h.get('txInputGainDb').value=12;h.get('txInputGainDb').fire('input');h.get('tx-mic-agc').checked=true;h.get('tx-mic-agc').fire('change');assert.equal(h.api.params.txInputGainDb,12);assert.equal(h.api.params.txMicAgc,true);assert.equal(h.api.playing,false);assert.equal(h.get('monitor').checked,false);assert.equal(h.api.fileSeed,seed);
+ await h.api.playFile();h.api.meter({input:.1,output:.1,signal:90,transmitting:true,fmRxOpen:true,txDeviationPeakHz:1500});assert.equal(h.get('tx-deviation-value').textContent,'1.50 kHz');assert.equal(h.get('tx-deviation-meter').style.width,'60%');assert.match(h.get('tx-deviation-help').textContent,/实际峰值/);
+ h.api.meter({input:0,output:0,signal:90,transmitting:false,txDeviationPeakHz:2500});assert.equal(h.get('tx-deviation-value').textContent,'—');assert.equal(h.get('tx-deviation-meter').style.width,'0%');
+ h.api.params.radio='digital';h.api.updateControls();assert.equal(h.get('txInputGainDb').disabled,true);assert.equal(h.get('tx-mic-agc').disabled,true);assert.match(h.get('tx-input-help').textContent,/当前路径不使用/);assert.equal(h.get('tx-deviation-value').textContent,'—');
+});
+
+const calibrationResult=(gainDb=12.88)=>({data:{proposal:{gainDb,levelDbov:-20.4,bounded:false,p56Conformant:false}}});
+test('QA: explicit calibration pauses, updates only TX gain, leaves AGC/A/output untouched and supports undo',async()=>{
+ const h=await harness();h.api.params.txInputGainDb=3;h.api.params.txMicAgc=true;h.api.params.output=41;h.api.params.mix=0;const seed=h.api.fileSeed;await h.api.playFile();h.context.currentTime=2.1;h.api.calibrateInput();const job=h.workers.at(-1);assert.equal(h.api.playing,false);assert.equal(h.api.pausedAt,2.1);assert.equal(h.get('calibrate-input').disabled,true);
+ job.onmessage(calibrationResult());assert.equal(h.api.params.txInputGainDb,12.88);assert.equal(h.api.params.txMicAgc,true);assert.equal(h.api.params.output,41);assert.equal(h.api.params.mix,0);assert.equal(h.api.fileSeed,seed);assert.equal(h.api.playing,false);assert.equal(h.get('txInputGainDb-value').textContent,'+12.88 dB');assert.match(h.get('calibration-status').textContent,/AGC 仍开启/);assert.equal(h.get('undo-calibration').hidden,false);
+ h.api.undoInputCalibration();assert.equal(h.api.params.txInputGainDb,3);assert.equal(h.get('undo-calibration').hidden,true);assert.equal(h.get('monitor').checked,false);
+});
+test('QA: calibration cancellation, failure, stale source and newer manual gain never overwrite current settings',async()=>{
+ for(const action of ['cancel','source','manual','mode','error']){
+  const h=await harness();h.api.params.txInputGainDb=2;h.api.calibrateInput();const job=h.workers.at(-1);
+  if(action==='cancel')h.get('cancel-calibration').fire('click');if(action==='source')h.api.setFile(h.buffer(2),'new.wav');if(action==='manual'){h.get('txInputGainDb').value=7;h.get('txInputGainDb').fire('input');}if(action==='mode')h.api.switchMode('mic');
+  if(action==='error')job.onerror({message:'worker failed'});job.onmessage(calibrationResult());assert.equal(h.api.params.txInputGainDb,action==='manual'?7:2,action);assert.equal(h.get('cancel-calibration').hidden,true);assert.equal(h.api.playing,false);
+ }
+});
+test('QA: clearly labeled nominal demos set visible verified gain without modifying A or starting audio',async()=>{
+ const h=await harness({fetchImpl:async()=>response()});h.context.decodeAudioData=async()=>h.buffer();h.api.params.mix=0;h.api.params.txMicAgc=true;const output=h.api.params.output;
+ await h.api.humanDemo('bdl');assert.equal(h.api.params.txInputGainDb,12.88);assert.equal(h.get('txInputGainDb-value').textContent,'+12.88 dB');assert.match(h.get('calibration-status').textContent,/示例标称输入/);assert.equal(h.api.params.mix,0);assert.equal(h.api.params.txMicAgc,true);assert.equal(h.api.params.output,output);assert.equal(h.api.playing,false);
+ await h.api.humanDemo('slt');assert.equal(h.api.params.txInputGainDb,9.64);assert.equal(h.get('txInputGainDb-value').textContent,'+9.64 dB');h.api.undoInputCalibration();assert.equal(h.api.params.txInputGainDb,12.88);
+ await h.api.loadFile({name:'my-file.wav',size:8,arrayBuffer:async()=>new ArrayBuffer(8)});assert.equal(h.api.params.txInputGainDb,12.88);assert.equal(h.get('undo-calibration').hidden,true);
+});
+test('QA: manual gain adjustment while nominal demo loads wins over delayed demo default',async()=>{
+ const pending=deferred();const h=await harness({fetchImpl:async()=>pending.promise});h.context.decodeAudioData=async()=>h.buffer();const loading=h.api.humanDemo('bdl');await tick();h.get('txInputGainDb').value=-2;h.get('txInputGainDb').fire('input');pending.resolve(response());await loading;assert.equal(h.api.params.txInputGainDb,-2);assert.match(h.get('calibration-status').textContent,/保留载入期间手动设置/);
 });

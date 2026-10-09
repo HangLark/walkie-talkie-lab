@@ -1,4 +1,4 @@
-import { RadioKernel } from './dsp.js?v=fm-fading-v1';
+import { RadioKernel } from './dsp.js?v=fm-transmitter-v1';
 import { encodeWav } from './wav.js';
 self.onmessage = ({ data }) => {
   try {

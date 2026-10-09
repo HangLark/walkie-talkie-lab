@@ -13,7 +13,7 @@ async function harness(){
  class Worker{constructor(){workers.push(this);}postMessage(data){this.sent=data;}terminate(){this.terminated=true;}}
  const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
  const scope={document,window:element(),DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout:f=>{timers.push(f);return timers.length-1;},clearTimeout:i=>{timers[i]=null;},URL,Float32Array,Math};
- vm.runInNewContext(code+`\nglobalThis.api={applyPreset,applyRF,prepareMatch,cancelComparison,checkComparison,playFile,stopPlayback,switchMode,sendParams,setup(c){context=c;monitorGain=c.createGain();fileBuffer={sampleRate:48000,duration:1,length:48000};monoSamples=new Float32Array(48000).fill(.1);},ready(){return !!comparison;},get params(){return params;},get worker(){return comparisonWorker;},get playing(){return playing;},get pausedAt(){return pausedAt;},setWorklet(w){worklet=w;}};`,scope);
+ vm.runInNewContext(code+`\nglobalThis.api={calibrateInput,applyPreset,applyRF,prepareMatch,cancelComparison,checkComparison,playFile,stopPlayback,switchMode,sendParams,setup(c){context=c;monitorGain=c.createGain();fileBuffer={sampleRate:48000,duration:1,length:48000};monoSamples=new Float32Array(48000).fill(.1);},ready(){return !!comparison;},get params(){return params;},get worker(){return comparisonWorker;},get playing(){return playing;},get pausedAt(){return pausedAt;},setWorklet(w){worklet=w;}};`,scope);
  scope.api.setup(context);return {...scope,get,workers,sources,timers,context};
 }
 const readyData=()=>({data:{dry:new Float32Array(64800),wet:new Float32Array(64800),dryGain:.5,wetGain:1}});
@@ -70,4 +70,8 @@ test('receiver monitor changes invalidate matched snapshots without autoplay and
 test('propagation changes refresh matched snapshots at retained position with the same seed',async()=>{
  const h=await harness();h.api.prepareMatch();const seed=h.workers.at(-1).sent.seed;h.workers.at(-1).onmessage(readyData());await h.api.playFile();h.context.currentTime=.37;
  h.get('fm-propagation').value='moving';h.get('fm-propagation').fire('change');for(const f of h.timers.splice(0))f?.();const next=h.workers.at(-1);assert.equal(next.sent.params.fmPropagation,'moving');assert.equal(next.sent.seed,seed);next.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));assert.equal(h.api.playing,true);assert.equal(h.sources.at(-1).offset,.37);
+});
+
+test('explicit input calibration refreshes matched render but never restarts paused playback',async()=>{
+ const h=await harness();h.api.prepareMatch();const seed=h.workers.at(-1).sent.seed;h.workers.at(-1).onmessage(readyData());h.api.calibrateInput();const job=h.workers.at(-1);job.onmessage({data:{proposal:{gainDb:12.88,levelDbov:-20,bounded:false}}});for(const f of h.timers.splice(0))f?.();const rendered=h.workers.at(-1);assert.equal(rendered.sent.params.txInputGainDb,12.88);assert.equal(rendered.sent.seed,seed);rendered.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));assert.equal(h.api.playing,false);
 });
