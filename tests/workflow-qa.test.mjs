@@ -16,7 +16,7 @@ async function harness({cryptoAvailable=true,fetchImpl}={}){
  class AudioWorkletNode{constructor(c,n,options){this.options=options;this.port={postMessage(message){this.lastMessage=message;},close(){}};processors.push(this);}connect(){}disconnect(){this.disconnected=true;}}
  const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
  const scope={fetch:fetchImpl,AbortController,crypto:cryptoAvailable?{getRandomValues(a){a[0]=++entropy;return a;}}:undefined,navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){},addEventListener(){}}]})}},document,window:{...element(),isSecureContext:true},DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,AudioWorkletNode,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(){return 1;},clearTimeout(){},URL:class extends URL{static createObjectURL(){return 'blob:test';}static revokeObjectURL(){}},Blob,Float32Array,Math};
- vm.runInNewContext(code+`\nglobalThis.api={controls,format,meter,ensureAudio,resetContext(){context=null;initPromise=null;},loadFile,createTakeSeed,demo,humanDemo,startMic,stopMic,prepareMatch,matchKey,checkComparison,ptt,get fileSeed(){return fileSeed;},get micSeed(){return micSeed;},applyPreset,applyRF,updateControls,playFile,stopPlayback,switchMode,setFile,exportWav,finishExport,setup(c,b){context=c;monitorGain=c.createGain();setFile(b,'original.wav');},get params(){return params;},get playing(){return playing;},get pausedAt(){return pausedAt;},get exportBusy(){return exportBusy;}};`,scope);
+ vm.runInNewContext(code+`\nglobalThis.api={controls,format,cnrLabel,meter,ensureAudio,resetContext(){context=null;initPromise=null;},loadFile,createTakeSeed,demo,humanDemo,startMic,stopMic,prepareMatch,matchKey,checkComparison,ptt,get fileSeed(){return fileSeed;},get micSeed(){return micSeed;},applyPreset,applyRF,updateControls,playFile,stopPlayback,switchMode,setFile,exportWav,finishExport,setup(c,b){context=c;monitorGain=c.createGain();setFile(b,'original.wav');},get params(){return params;},get playing(){return playing;},get pausedAt(){return pausedAt;},get exportBusy(){return exportBusy;}};`,scope);
  scope.api.setup(context,buffer());return {...scope,get,workers,sources,processors,downloads,context,buffer};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
@@ -142,7 +142,7 @@ test('QA: analog FM fixed-chain controls are visibly inactive and other paths re
 test('QA: closed receiver squelch is distinguished from continued transmission',async()=>{
  const h=await harness();await h.api.playFile();h.api.meter({input:.1,output:0,signal:30,carrier:false,transmitting:true,fmRxOpen:false});
  assert.equal(h.get('carrier-text').textContent,'静噪关闭');assert.match(h.get('receiver-status').textContent,/发射仍在进行/);assert.equal(h.api.playing,true);
- h.api.meter({input:.1,output:.1,signal:90,carrier:true,transmitting:true,fmRxOpen:true});assert.equal(h.get('carrier-text').textContent,'接收');assert.match(h.get('receiver-status').textContent,/静噪开启/);
+ h.api.meter({input:.1,output:.1,signal:90,carrier:true,transmitting:true,fmRxOpen:true});assert.equal(h.get('carrier-text').textContent,'接收');assert.match(h.get('receiver-status').textContent,/自动静噪已放行/);
  h.api.meter({input:0,output:0,signal:90,carrier:false,transmitting:false});assert.equal(h.get('carrier-text').textContent,'待机');
 });
 
@@ -151,4 +151,27 @@ test('QA: engine requests interactive 48 kHz and discloses actual fallback rate'
   const h=await harness(),calls=[];h.context.sampleRate=fallback?192000:48000;h.window.AudioContext=function(options){calls.push(options);if(fallback&&calls.length===1){const e=Error('unsupported rate');e.name='NotSupportedError';throw e;}return h.context;};h.api.resetContext();await h.api.ensureAudio();
   assert.equal(calls[0].sampleRate,48000);assert.equal(calls[0].latencyHint,'interactive');assert.equal(calls.length,fallback?2:1);assert.match(h.get('engine-rate').textContent,fallback?/192.0 kHz.*可能无法稳定/:/48.0 kHz/);
  }
+});
+
+test('QA: receiver open-squelch is explicit, reversible and never starts audio or microphone monitoring',async()=>{
+ const h=await harness();h.api.updateControls();assert.equal(h.get('fm-monitor').checked,false);assert.equal(h.get('fm-monitor').disabled,false);assert.match(h.get('fm-monitor-help').textContent,/先降低试听音量/);
+ const seed=h.api.fileSeed;h.get('fm-monitor').checked=true;h.get('fm-monitor').fire('change');assert.equal(h.api.params.fmMonitor,true);assert.equal(h.api.playing,false);assert.equal(h.sources.length,0);assert.equal(h.get('monitor').checked,false);assert.equal(h.api.fileSeed,seed);assert.equal(h.get('squelch').disabled,true);
+ await h.api.playFile();h.api.meter({input:.1,output:.1,signal:35,transmitting:true,carrier:false,fmRxOpen:true,fmMonitorActive:true});assert.equal(h.get('carrier-text').textContent,'静噪打开');assert.match(h.get('receiver-status').textContent,/手动打开接收静噪/);assert.equal(h.get('quality-screen').textContent,'8.8 dB');assert.equal(h.get('quality-value').textContent,'35.2 dB');
+ h.get('fm-monitor').checked=false;h.get('fm-monitor').fire('change');assert.equal(h.api.params.fmMonitor,false);assert.equal(h.get('squelch').disabled,false);assert.equal(h.get('monitor').checked,false);
+ h.api.params.radio='digital';h.api.updateControls();assert.equal(h.get('fm-monitor').disabled,true);h.get('fm-monitor').checked=true;h.get('fm-monitor').fire('change');assert.equal(h.api.params.fmMonitor,false);
+});
+test('QA: near-threshold shortcut exposes C/N and preserves explicit squelch-monitor choice',async()=>{
+ const h=await harness();h.api.applyRF('varying');assert.equal(h.api.params.quality,35);assert.equal(h.get('quality-value').textContent,'8.8 dB');assert.equal(h.get('quality-screen').textContent,'8.8 dB');assert.equal(h.get('fm-monitor').checked,false);
+ h.get('fm-monitor').checked=true;h.get('fm-monitor').fire('change');h.api.applyRF('stable');assert.equal(h.api.params.fmMonitor,true);assert.equal(h.get('quality-value').textContent,'无噪声');
+ h.api.params.radio='digital';h.api.updateControls();assert.equal(h.get('quality-value').textContent,'100%');h.api.params.perspective='operator';h.api.updateControls();assert.equal(h.get('quality-screen').textContent,'—');
+});
+
+test('QA: receiver-monitor toggle during held PTT preserves transmission and keeps headphones off',async()=>{
+ const h=await harness();h.api.switchMode('mic');await h.api.startMic();h.api.ptt(true);const processor=h.processors.at(-1);assert.equal(processor.port.lastMessage.params.tx,true);
+ h.get('fm-monitor').checked=true;h.get('fm-monitor').fire('change');assert.equal(processor.port.lastMessage.params.tx,true);assert.equal(processor.port.lastMessage.params.fmMonitor,true);assert.equal(h.get('monitor').checked,false);assert.equal(h.get('ptt').classList.contains('transmitting'),true);
+ h.api.ptt(false);assert.equal(processor.port.lastMessage.params.tx,false);assert.equal(h.get('monitor').checked,false);
+});
+
+test('QA: live C/N label uses the same noiseless threshold as the FM model',async()=>{
+ const h=await harness();assert.equal(h.api.cnrLabel(99.999),'无噪声');assert.equal(h.api.cnrLabel(99.998),'40.0 dB');assert.equal(h.api.cnrLabel(35),'8.8 dB');
 });

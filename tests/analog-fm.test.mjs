@@ -40,3 +40,21 @@ test('short speech-like onset/sibilants and release remain present without carri
  assert.ok(bins[0]>.1&&bins[1]>.01&&bins[2]>.001);assert.ok(bins[4]<1e-8);
 });
 test('UI quality mapping identifies noiseless endpoint and is explicitly monotonic CNR',()=>{assert.equal(qualityToCnrDb(100),Infinity);assert.equal(qualityToCnrDb(0),-8);assert.ok(qualityToCnrDb(80)>qualityToCnrDb(40));});
+
+test('near-threshold FM creates phase excursions before squelch, not a post-audio noise overlay',()=>{
+ const counts=[];for(const cnrDb of [20,8,4,0]){const k=new AnalogFM(48000,{cnrDb,seed:41});let count=0;for(let n=0;n<48000;n++){k.processSample(.25*Math.sin(2*Math.PI*1000*n/48000));if(n>4800&&Math.abs(k.discriminatorHz)>10000)count++;}counts.push(count);}
+ assert.equal(counts[0],0);assert.ok(counts[1]>0);assert.ok(counts[2]>counts[1]*5);assert.ok(counts[3]>counts[2]*2);
+});
+
+test('receiver AC coupling rejects DC and below-band discriminator noise without altering squelch detector',()=>{
+ const a=new AnalogFM(48000,{cnrDb:0,seed:123}),b=new AnalogFM(48000,{cnrDb:0,seed:123});b.audioHigh.tick=x=>x;
+ const corrected=new Float64Array(32768),uncoupled=new Float64Array(32768);
+ for(let n=0;n<48000+32768;n++){const x=a.processSample(0),y=b.processSample(0);if(n>=48000){corrected[n-48000]=x;uncoupled[n-48000]=y;}}
+ // Coarse periodogram over 29 bins below 300 Hz. Same noise seed gives an
+ // objective before/after chain test, not an arbitrary new noise color.
+ function lowBandPower(x){let power=0;for(let hz=10;hz<300;hz+=10){let re=0,im=0;for(let n=0;n<x.length;n++){const w=.5-.5*Math.cos(2*Math.PI*n/(x.length-1));re+=x[n]*w*Math.cos(2*Math.PI*hz*n/48000);im+=x[n]*w*Math.sin(2*Math.PI*hz*n/48000);}power+=re*re+im*im;}return power;}
+ assert.ok(lowBandPower(corrected)<lowBandPower(uncoupled)*.15);
+ assert.equal(a.discriminatorNoiseHz,b.discriminatorNoiseHz);assert.equal(a.confidence,b.confidence);
+ const hp=new AnalogFM(48000).audioHigh;let dc=0;for(let n=0;n<48000;n++)dc=hp.tick(1);assert.ok(Math.abs(dc)<1e-10);
+ const at300=tone(48000,300).rms/(.2/Math.sqrt(2));assert.ok(Math.abs(20*Math.log10(at300)+6)<.15);
+});

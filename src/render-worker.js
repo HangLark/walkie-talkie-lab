@@ -1,4 +1,4 @@
-import { RadioKernel } from './dsp.js?v=fm-baseband-v1';
+import { RadioKernel } from './dsp.js?v=fm-monitor-v1';
 import { encodeWav } from './wav.js';
 self.onmessage = ({ data }) => {
   try {

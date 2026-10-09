@@ -7,6 +7,7 @@ The previous five uncalibrated voice cards have been removed from the active int
 - Choose receiver or local operator sidetone. The monitor names that actual path.
 - Choose experimental analog FM, or the explicitly labeled digital loss demonstration without a vocoder.
 - Adjust relative quality (with its explicit model C/N mapping) and discriminator-noise squelch. The analog injected-noise control is disabled; noise comes from the I/Q channel. Condition shortcuts are static model settings, not calibrated RF measurements or motion scenarios.
+- Automatic squelch is the default. “打开接收静噪” explicitly bypasses the receiver noise gate to inspect weak/noisy reception; lower listening volume first. It does not enable headphone monitoring or playback. The near-threshold shortcut is 8.8 dB model C/N; it does not silently open squelch.
 - Expand advanced parameters for optional input leveling and output EQ. Fixed analog bandwidth/emphasis and unused legacy parameters are visibly disabled; alternate audio-domain paths expose their own active controls. The “未校准” marker remains visible even at defaults.
 - “恢复语音基线” restores only voice-chain parameters. Listening perspective, channel conditions, mode, cues, output, A/B, VOX, session seed and current source remain unchanged.
 

@@ -1,6 +1,6 @@
-import { AnalogFM, qualityToCnrDb } from './analog-fm.js?v=fm-baseband-v1';
+import { AnalogFM, qualityToCnrDb } from './analog-fm.js?v=fm-monitor-v1';
 /** Shared, allocation-free per-sample approximate radio audio kernel. Not a hardware/codec emulator. */
-export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 0, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 0, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, vox: false, gateDry: false, voxThreshold: -42, tx: true });
+export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 0, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 0, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, fmMonitor: false, vox: false, gateDry: false, voxThreshold: -42, tx: true });
 // Legacy stress-test configurations; not user-facing device models or calibrated presets.
 export const PRESETS = Object.freeze({
   patrol: { name: '巡逻频道', description: '模拟接收端：清晰窄带语音、开台声与可调静噪尾音', ...DEFAULTS },
@@ -19,7 +19,7 @@ export const TIMBRE_PROFILES = Object.freeze({
 });
 export const CHANNEL_PROFILES = Object.freeze({
   stable:Object.freeze({name:'稳定',description:'强信号、少底噪',params:Object.freeze({quality:100,noise:3,squelch:18})}),
-  varying:Object.freeze({name:'中等 C/N',description:'模拟：静态中等 C/N；数字：实验性丢帧',params:Object.freeze({quality:62,noise:24,squelch:18})}),
+  varying:Object.freeze({name:'临界 C/N',description:'模拟：8.8 dB 临界区；数字：实验性丢帧',params:Object.freeze({quality:35,noise:24,squelch:18})}),
   fringe:Object.freeze({name:'低 C/N',description:'模拟：静态低 C/N，可能静噪；数字：实验性断续',params:Object.freeze({quality:30,noise:43,squelch:22})})
 });
 export function applyTimbre(current,key) { return sanitizeParams({...current,...TIMBRE_PROFILES[key]?.params}); }
@@ -31,7 +31,7 @@ const PERMIT_FREQUENCIES = [910, 1210, 1510];
 export function sanitizeParams(params = {}, base = DEFAULTS) {
   const p = { ...base };
   for (const [key, range] of Object.entries(ranges)) if (Number.isFinite(params[key])) p[key] = clamp(params[key], ...range);
-  for (const key of ['vox', 'tx', 'gateDry']) if (typeof params[key] === 'boolean') p[key] = params[key];
+  for (const key of ['vox', 'tx', 'gateDry', 'fmMonitor']) if (typeof params[key] === 'boolean') p[key] = params[key];
   for (const [key, choices] of Object.entries({ perspective: ['receiver', 'operator'], radio: ['analog', 'digital'], permit: ['off', 'single', 'triple'] })) if (choices.includes(params[key])) p[key] = params[key];
   return p;
 }
@@ -119,7 +119,7 @@ export class RadioKernel {
     this.cueSeed = ((seed >>> 0) ^ 0x51c0a7e3) >>> 0 || 1;
     this.openCue = { duration: .024, gain: .38, power: 2 };
     this.tailCue = { attack: .003, gain: .48, power: 1.5 };
-    this.fm = new AnalogFM(sampleRate, { seed: seed ^ 0x464d1234 }); this.fmDrainSamples = Math.ceil(sampleRate*.02); this.fmAcquire = 0; this.fmRxOpen = false;
+    this.fm = new AnalogFM(sampleRate, { seed: seed ^ 0x464d1234 }); this.fmDrainSamples = Math.ceil(sampleRate*.02); this.fmAcquire = 0; this.fmRxOpen = false; this.fmMonitorActive = false;
     this.rate = sampleRate; this.target = sanitizeParams(params); this.p = { ...this.target }; this.seed = seed >>> 0 || 1;
     this.hp2 = new Biquad(); this.lp2 = new Biquad(); this.presence = new Biquad(); this.hp = new Biquad(); this.lp = new Biquad(); this.noiseHP = new Biquad(); this.noiseLP = new Biquad(); this.color = new Biquad(); this.bodyEQ = new Biquad();
     this.noiseScale = Math.sqrt(sampleRate/48000);
@@ -216,13 +216,14 @@ export class RadioKernel {
       const tailAge = this.releaseAge - this.delaySamples - this.fmDrainSamples;
       const tail = !transmit && !draining && tailAge >= 0 && tailAge < this.releaseLength;
       const preclose = !transmit && this.releaseLength === 0 && this.releaseAge >= this.delaySamples + this.fmDrainSamples - Math.ceil(this.rate*.01);
-      const open = (transmit || draining || tail) && this.carrier && !preclose;
+      this.fmMonitorActive = Boolean(t.fmMonitor);
+      const open = (transmit || draining || tail) && (this.fmMonitorActive || this.carrier) && !preclose;
       this.fmRxOpen = Boolean(open);
-      this.gate += ((open ? 1 : 0)-this.gate) * (1-Math.exp(-1/(this.rate*(open?.003:preclose?.001:.003))));
+      this.gate += ((open ? 1 : 0)-this.gate) * (1-Math.exp(-1/(this.rate*(open?(this.fmMonitorActive?.016:.003):preclose?.001:.003))));
       if (!transmit && !draining && this.releaseLength === 0) this.gate = 0;
       this.fade = this.gate;
     } else {
-    this.fmRxOpen = false;
+    this.fmRxOpen = false; this.fmMonitorActive = false;
     x = this.leveler.tick(this.hp2.tick(this.hp.tick(x)), p.leveler);
     const absolute = Math.abs(x); const a = absolute > this.env ? this.attack : this.release; this.env = a*this.env + (1-a)*absolute;
     const over = Math.max(0, 20*Math.log10(this.env + 1e-12) + 20);

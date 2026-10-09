@@ -31,7 +31,7 @@ export class AnalogFM {
     const r=this.basebandRate;
     this.txHigh=new Biquad('high',300,r); this.txLow=new Butterworth4('low',3000,r);
     this.rxI=new Butterworth4('low',6000,r); this.rxQ=new Butterworth4('low',6000,r);
-    this.audioLow=new Butterworth4('low',3000,r); this.detectorHigh=new Butterworth4('high',4500,r);
+    this.audioHigh=new Biquad('high',300,r); this.audioLow=new Butterworth4('low',3000,r); this.detectorHigh=new Butterworth4('high',4500,r);
     // Measure discrete impulse energy; for complex white noise this is the
     // fraction of total input noise power passed by our actual channel filter.
     const probe=new Butterworth4('low',6000,r); let energy=0;
@@ -82,7 +82,7 @@ export class AnalogFM {
     // noise threshold, and the power term rejects noiseless absent carriers.
     this.confidence=clamp(this.channelPower/.05,0,1)/(1+this.detectorPower/(250*250));
     this.deState=this.emphasisPole*this.deState+(1-this.emphasisPole)*this.emphasisNorm*this.discriminatorHz/this.deviationHz;
-    return this.audioLow.tick(this.deState);
+    return this.audioLow.tick(this.audioHigh.tick(this.deState));
   }
   processSample(input, carrier=true) {
     const x=Number.isFinite(input)?clamp(input,-8,8):0;

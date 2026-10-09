@@ -127,3 +127,5 @@ footer{padding:16px 0 20px}
 .speech-demos{margin:12px 0 0;font-size:12px;color:var(--muted)}.speech-demos>div{display:flex;gap:8px;margin:8px 0}.speech-demos .secondary{flex:1;min-height:42px;padding:6px 12px}.speech-demos small{font-size:11px;line-height:1.6}.speech-demos a{color:inherit;text-underline-offset:3px}.technical-demo{font-size:11px;margin-top:8px}
 
 #engine-rate{display:block;margin-top:4px;font-size:11px;line-height:1.5}
+
+.receiver-monitor-control{border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin:12px 0 16px}.receiver-monitor-control .toggle-row{margin:0}.receiver-monitor-control .help{margin:8px 0 0}.signal-row #quality-screen{font-size:12px;white-space:nowrap}

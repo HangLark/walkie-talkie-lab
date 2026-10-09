@@ -1,4 +1,4 @@
-import { renderRadio, sanitizeParams } from './dsp.js?v=fm-baseband-v1';
+import { renderRadio, sanitizeParams } from './dsp.js?v=fm-monitor-v1';
 
 /** Fixed, shared-mask RMS matching, not perceptual loudness or speech recognition. */
 export function prepareComparison(input, rate, settings, seed) {
