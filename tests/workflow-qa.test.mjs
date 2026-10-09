@@ -16,7 +16,7 @@ async function harness({cryptoAvailable=true}={}){
  class AudioWorkletNode{constructor(c,n,options){this.options=options;this.port={postMessage(message){this.lastMessage=message;},close(){}};processors.push(this);}connect(){}disconnect(){this.disconnected=true;}}
  const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
  const scope={crypto:cryptoAvailable?{getRandomValues(a){a[0]=++entropy;return a;}}:undefined,navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){},addEventListener(){}}]})}},document,window:{...element(),isSecureContext:true},DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,AudioWorkletNode,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(){return 1;},clearTimeout(){},URL:class extends URL{static createObjectURL(){return 'blob:test';}static revokeObjectURL(){}},Blob,Float32Array,Math};
- vm.runInNewContext(code+`\nglobalThis.api={loadFile,createTakeSeed,demo,startMic,stopMic,prepareMatch,matchKey,checkComparison,ptt,get fileSeed(){return fileSeed;},get micSeed(){return micSeed;},applyPreset,applyRF,updateControls,playFile,stopPlayback,switchMode,setFile,exportWav,finishExport,setup(c,b){context=c;monitorGain=c.createGain();setFile(b,'original.wav');},get params(){return params;},get playing(){return playing;},get pausedAt(){return pausedAt;},get exportBusy(){return exportBusy;}};`,scope);
+ vm.runInNewContext(code+`\nglobalThis.api={controls,format,loadFile,createTakeSeed,demo,startMic,stopMic,prepareMatch,matchKey,checkComparison,ptt,get fileSeed(){return fileSeed;},get micSeed(){return micSeed;},applyPreset,applyRF,updateControls,playFile,stopPlayback,switchMode,setFile,exportWav,finishExport,setup(c,b){context=c;monitorGain=c.createGain();setFile(b,'original.wav');},get params(){return params;},get playing(){return playing;},get pausedAt(){return pausedAt;},get exportBusy(){return exportBusy;}};`,scope);
  scope.api.setup(context,buffer());return {...scope,get,workers,sources,processors,downloads,context,buffer};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
@@ -88,4 +88,11 @@ test('obsolete microphone permission result stops its tracks without changing se
  h.navigator.mediaDevices.getUserMedia=async()=>({getTracks:()=>[{stop(){},addEventListener(){}}]});await h.api.startMic();const seed=h.api.micSeed;
  finishOld({getTracks:()=>[{stop(){stopped=true;}}]});await old;
  assert.ok(stopped);assert.equal(h.api.micSeed,seed);assert.equal(seed,102);assert.equal(h.processors.length,1);assert.equal(h.get('monitor').checked,false);
+});
+
+test('all profile slider values are exactly representable and display without losing precision',async()=>{
+ const h=await harness();for(const [profile,p] of Object.entries(TIMBRE_PROFILES))for(const group of h.api.controls)for(const [key,,min,max,step,unit] of group.items){
+  if(!(key in p.params))continue;const value=p.params[key];assert.ok(value>=min&&value<=max,`${profile}.${key} range`);const steps=(value-min)/step;assert.ok(Math.abs(steps-Math.round(steps))<1e-8,`${profile}.${key} must align to slider step`);assert.equal(parseFloat(h.api.format(value,unit)),value,`${profile}.${key} display`);
+ }
+ assert.equal(h.api.format(1.15,'×'),'1.15×');assert.equal(h.api.format(1.8,'dB'),'1.8 dB');
 });

@@ -12,10 +12,10 @@ function createTakeSeed(){
 let comparisonWorker, comparisonEpoch=0, comparison=null, comparisonKey='', playEpoch=0, comparisonGain;
 let matchEnabled=false, matchTimer, playIntent=false, listenVolume=.8, micTransmitting=false;
 const controls = [
-  { title: '音色 / TIMBRE', items: [ ['highpass','低频切除',150,800,10,'Hz','厚实','轻薄'], ['lowpass','高频截止',1600,4200,50,'Hz','收窄','明亮'], ['leveler','语音稳幅',0,100,5,'%','关闭','均衡'], ['compression','压缩比例',1,8,.5,':1','自然','紧凑'], ['drive','饱和驱动',1,5,.1,'×','干净','粗粝'], ['emphasis','预加重',0,3,.1,'','柔和','锐利'], ['speaker','喇叭染色',0,6,.5,'dB','平直','共鸣'] ] },
+  { title: '音色 / TIMBRE', items: [ ['highpass','低频切除',150,800,10,'Hz','厚实','轻薄'], ['lowpass','高频截止',1600,4200,50,'Hz','收窄','明亮'], ['leveler','语音稳幅',0,100,5,'%','关闭','均衡'], ['compression','压缩比例',1,8,.5,':1','自然','紧凑'], ['drive','饱和驱动',1,5,.05,'×','干净','粗粝'], ['emphasis','预加重',0,3,.1,'','柔和','锐利'], ['speaker','喇叭染色',0,6,.1,'dB','平直','共鸣'] ] },
   { title: '信道 / CHANNEL', items: [ ['quality','信号质量',0,100,1,'%','弱 / 衰落','强 / 稳定'], ['noise','底噪强度',0,100,1,'%','安静','嘶声'], ['squelch','静噪门限',0,65,1,'%','开放','严格'] ] }
 ];
-const format = (value, unit) => `${Number.isInteger(value) ? value : value.toFixed(1)}${unit === 'Hz' ? ' Hz' : unit === 'dB' ? ' dB' : unit}`;
+const format = (value, unit) => `${Number.isInteger(value) ? value : Number(value.toFixed(2))}${unit === 'Hz' ? ' Hz' : unit === 'dB' ? ' dB' : unit}`;
 for (const group of controls) {
   const section = document.createElement('div'); section.className='control-group';
   const title = document.createElement('div'); title.className='group-label'; title.textContent=group.title; section.append(title);
