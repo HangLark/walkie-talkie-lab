@@ -27,5 +27,5 @@ test('static app contract: unique IDs, no remote assets, relative module endpoin
   const html=await readFile(new URL('../index.html',import.meta.url),'utf8');const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(ids.length,new Set(ids).size);
   const app=await readFile(new URL('../src/app.js',import.meta.url),'utf8');const dynamic=['highpass','lowpass','compression','drive','emphasis','quality','noise','squelch','speaker'];
   for(const match of app.matchAll(/\$\('([^']+)'\)/g))assert.ok(ids.includes(match[1])||dynamic.includes(match[1]),`Missing element: ${match[1]}`);
-  assert.ok(!html.match(/(?:src|href)="https?:\/\//));assert.ok(app.includes("new URL('./worklet.js',import.meta.url)"));assert.ok(app.includes("new URL('./render-worker.js',import.meta.url)"));assert.ok(html.includes('aria-live="polite"'));assert.ok(html.includes('role="tablist"'));
+  assert.ok(!html.match(/(?:src|href)="https?:\/\//));assert.ok(app.includes("new URL('./worklet.js?v=workflow-v2',import.meta.url)"));assert.ok(app.includes("new URL('./render-worker.js',import.meta.url)"));assert.ok(html.includes('aria-live="polite"'));assert.ok(html.includes('role="tablist"'));
 });

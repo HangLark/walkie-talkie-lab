@@ -19,17 +19,17 @@ Opening `index.html` directly with `file://` is unsupported. AudioWorklet and mi
 ## Workflow
 
 1. Import a local WAV, MP3, M4A, OGG, or another format your browser can decode, or try the built-in synthetic test signal. The signal is deliberately not presented as a recording of a real person.
-2. Select one of six sound-design presets. Choose receiver vs operator perspective, analog vs digital-inspired behavior, local permit tone, cue level, and analog tail duration. Bandwidth, speech leveling, compression, preemphasis, saturation, RF quality, noise, squelch, speaker coloration and cue level update during playback. Perspective/style/permit identity is captured at the next transmission; stop and replay a file to apply those changes.
-3. Compare dry source (A) and processed radio (B), pause/resume, stop, or loop.
+2. Select one of six sound-design presets. Choose receiver vs operator perspective, analog vs digital-inspired behavior, local permit tone, cue level, and analog tail duration. Bandwidth, speech leveling, compression, preemphasis, saturation, RF quality, noise, squelch, speaker coloration and cue level update during playback. File auditions apply a complete preset, including perspective/style/permit, while preserving the current position and play/pause intent. Live microphone cue identity is captured at the next transmission.
+3. Use the persistent audition bar to compare dry source (A) and processed radio (B), pause/resume, stop, seek, or loop while adjusting the sound. Listening volume is separate from the processing/output parameters.
 4. Export the complete input with the parameters captured when you clicked export. Export always uses the wet radio effect, current output volume, mono 16-bit PCM, the AudioContext sample rate, and a 350 ms release tail. Preview loop mode and dry A/B do not change the export. Conversion runs in a dedicated worker and can be cancelled.
 
 Input is limited to 50 MB and ten minutes. Decoded audio can use much more memory than compressed input; very long/multichannel files may be expensive on mobile devices. Unsupported and corrupt files produce a recoverable error without discarding the last valid input. Mono downmix is a channel average; oppositely phased stereo material may cancel.
 
 ### Optional level-matched file comparison
 
-Choose **准备电平匹配 A/B（近似）** to prepare fixed-gain dry/wet snapshots. This is approximate shared-mask RMS matching, not a perceptual loudness standard: the louder path is attenuated, dry voice receives the same nominal 24/90 ms delay as wet voice, and both snapshots retain the 350 ms tail. Press play after preparation; A/B preserves the timeline offset with short fades. Live meters are cleared on this separate audition path.
+Choose **准备电平匹配 A/B（近似）** to prepare fixed-gain dry/wet snapshots. This is approximate shared-mask RMS matching, not a perceptual loudness standard: the louder path is attenuated, dry voice receives the same nominal 24/90 ms delay as wet voice, and both snapshots retain the 350 ms tail. Preparation preserves the current position and play/pause intent; A/B preserves the timeline offset with short fades. Live meters are cleared on this separate audition path.
 
-Preparation is cancellable and never starts playback automatically. Changing the source or processing/output controls invalidates the snapshot. Microphones and WAV export do not use matching attenuation. Silent, very short, nonfinite or over-full-scale sources are rejected for matching. Ordinary playback remains available. See [reference analysis and limitations](REFERENCE_CALIBRATION.md) for the two recording sources and why their speech spectra were not treated as measured radio hardware responses.
+Preparation is cancellable. Processing/output changes automatically refresh the matched snapshots, preserving position and play/pause intent rather than requiring another prepare/play sequence. Playback resumes after preparation only when playback was requested; preparing while paused stays paused. Changing the source or source mode cancels the old comparison. Microphones and WAV export do not use matching attenuation. Silent, very short, nonfinite or over-full-scale sources are rejected for matching. Ordinary playback remains available. See [reference analysis and limitations](REFERENCE_CALIBRATION.md) for the two recording sources and why their speech spectra were not treated as measured radio hardware responses.
 
 ### Microphone
 
@@ -39,7 +39,7 @@ Preparation is cancellable and never starts playback automatically. Changing the
 - Hold PTT, or space when focus is not on another interactive control. PTT itself also supports space/Enter. Releasing, cancelling a pointer gesture, or losing focus ends transmission.
 - VOX is a separate input-level gate with a 250 ms hold, not RF squelch. It is only used for live microphone input. The dry microphone A/B path also respects PTT/VOX.
 - Stop releases every microphone track and closes monitoring. Switching source modes, hiding the page, and leaving the page also release the microphone. Returning requires an explicit restart.
-- This version does not record microphone sessions. WAV export applies to the imported/synthetic file only.
+- This version does not record microphone sessions. WAV export applies to the imported/synthetic file only and is hidden in microphone mode. The file export identifies its source; changing the source or source mode cancels any pending export.
 
 ## Signal model and limitations
 

@@ -12,8 +12,8 @@ async function harness(){
  const context={currentTime:0,resume:async()=>{},createGain:()=>({gain:gain(),connect(){},disconnect(){}}),createBuffer:(channels,length,sampleRate)=>({length,sampleRate,duration:length/sampleRate,copyToChannel(){}}),createBufferSource:()=>{const s={connect(){},disconnect(){this.disconnected=true;},start(at,offset){this.offset=offset;},stop(){this.stopped=true;}};sources.push(s);return s;}};
  class Worker{constructor(){workers.push(this);}postMessage(data){this.sent=data;}terminate(){this.terminated=true;}}
  const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
- const scope={document,window:element(),DEFAULTS,PRESETS,Worker,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout:f=>timers.push(f),URL,Float32Array,Math};
- vm.runInNewContext(code+`\nglobalThis.api={prepareMatch,cancelComparison,checkComparison,playFile,stopPlayback,switchMode,setup(c){context=c;monitorGain=c.createGain();fileBuffer={sampleRate:48000,duration:1,length:48000};monoSamples=new Float32Array(48000).fill(.1);},ready(){return !!comparison;},get params(){return params;},get worker(){return comparisonWorker;},get playing(){return playing;},get pausedAt(){return pausedAt;},setWorklet(w){worklet=w;}};`,scope);
+ const scope={document,window:element(),DEFAULTS,PRESETS,Worker,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout:f=>{timers.push(f);return timers.length-1;},clearTimeout:i=>{timers[i]=null;},URL,Float32Array,Math};
+ vm.runInNewContext(code+`\nglobalThis.api={prepareMatch,cancelComparison,checkComparison,playFile,stopPlayback,switchMode,sendParams,setup(c){context=c;monitorGain=c.createGain();fileBuffer={sampleRate:48000,duration:1,length:48000};monoSamples=new Float32Array(48000).fill(.1);},ready(){return !!comparison;},get params(){return params;},get worker(){return comparisonWorker;},get playing(){return playing;},get pausedAt(){return pausedAt;},setWorklet(w){worklet=w;}};`,scope);
  scope.api.setup(context);return {...scope,get,workers,sources,timers,context};
 }
 const readyData=()=>({data:{dry:new Float32Array(64800),wet:new Float32Array(64800),dryGain:.5,wetGain:1}});
@@ -24,8 +24,7 @@ test('comparison cancellation and parameter changes reject stale worker replies'
 });
 test('prepared A/B keeps offset, detaches old worklet, stops safely and isolates microphone mode',async()=>{
  const h=await harness();h.api.prepareMatch();await h.api.playFile();assert.equal(h.sources.length,0);
- h.workers.at(-1).onmessage(readyData());let disconnected=false,closed=false;h.api.setWorklet({disconnect(){disconnected=true;},port:{close(){closed=true;}}});
- await h.api.playFile();assert.ok(disconnected&&closed);h.context.currentTime=.4;h.get('dry').fire('click');await new Promise(resolve=>setImmediate(resolve));
+ let disconnected=false,closed=false;h.api.setWorklet({disconnect(){disconnected=true;},port:{postMessage(){},close(){closed=true;}}});h.workers.at(-1).onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));assert.ok(disconnected&&closed);h.context.currentTime=.4;h.get('dry').fire('click');await new Promise(resolve=>setImmediate(resolve));
  assert.ok(Math.abs(h.sources.at(-1).offset-.4)<1e-8);h.api.stopPlayback();assert.equal(h.api.playing,false);
  h.api.switchMode('mic');assert.equal(h.api.ready(),false);assert.equal(h.get('match-prepare').disabled,true);const count=h.workers.length;h.api.prepareMatch();assert.equal(h.workers.length,count);
 });
@@ -34,3 +33,26 @@ test('rapid repeated toggles leave one active source and old async play cannot r
  h.context.currentTime=.25;h.get('dry').fire('click');h.get('wet').fire('click');h.api.stopPlayback();await new Promise(resolve=>setImmediate(resolve));assert.equal(h.api.playing,false);
  assert.ok(h.sources.every(s=>s.stopped));
 });
+
+ test('automatic matched refresh preserves intent and position while rejecting stale renders',async()=>{
+  const h=await harness();h.api.prepareMatch();h.workers.at(-1).onmessage(readyData());await h.api.playFile();h.context.currentTime=.45;
+  h.api.params.drive=2.8;h.api.sendParams();assert.equal(h.api.playing,false);assert.equal(h.api.pausedAt,.45);assert.equal(h.api.ready(),false);
+  for(const f of h.timers.splice(0))f?.();const obsolete=h.workers.at(-1);
+  h.api.params.drive=3.3;h.api.sendParams();assert.ok(obsolete.terminated);obsolete.onmessage(readyData());assert.equal(h.api.ready(),false);
+  for(const f of h.timers.splice(0))f?.();const latest=h.workers.at(-1);assert.equal(latest.sent.params.drive,3.3);latest.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(h.api.playing,true);assert.equal(h.sources.at(-1).offset,.45);
+ });
+ test('pause and stop during matched update never resume from a late result',async()=>{
+  for(const action of ['pause','stop']){const h=await harness();h.api.prepareMatch();await h.api.playFile();const pending=h.workers.at(-1);
+   if(action==='pause')await h.api.playFile();else h.get('stop').fire('click');
+   pending.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));assert.equal(h.api.playing,false);assert.equal(h.sources.length,0);
+  }
+ });
+ test('listening volume changes neither render parameters nor matched worker snapshot',async()=>{
+  const h=await harness();h.api.prepareMatch();const pending=h.workers.at(-1),before=h.api.params.output;h.get('listen-volume').value=25;h.get('listen-volume').fire('input');
+  assert.equal(h.api.params.output,before);assert.equal(h.api.worker,pending);assert.ok(!pending.terminated);pending.onmessage(readyData());assert.equal(h.api.ready(),true);
+ });
+ test('mode switch cancels pending matching and stale completion cannot start playback',async()=>{
+  const h=await harness();h.api.prepareMatch();await h.api.playFile();const pending=h.workers.at(-1);h.api.switchMode('mic');pending.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(h.api.playing,false);assert.equal(h.api.ready(),false);assert.equal(h.get('export').disabled,true);assert.equal(h.get('file-transport').hidden,true);
+ });

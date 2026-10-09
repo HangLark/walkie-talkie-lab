@@ -16,7 +16,7 @@ test('workspace retains accessible input, status, and safe microphone defaults',
 });
 
 test('advanced controls and approximate comparison remain discoverable native disclosures', () => {
-  assert.match(html, /<details class="panel controls-panel"><summary/);
+  assert.match(html, /<details class="advanced-controls"><summary/);
   assert.match(html, /<details class="comparison-tools"><summary/);
   assert.doesNotMatch(html, /<details[^>]+\bopen\b/);
   assert.ok(html.indexOf('id="output-heading"') < html.indexOf('id="tune-heading"'));
@@ -38,7 +38,7 @@ function declarations(selector) {
 }
 
 test('monitor and output share an independent sidebar rather than source-sized grid rows', () => {
-  const sidebar = html.slice(html.indexOf('<section class="center-column">'), html.indexOf('<details class="panel controls-panel">'));
+  const sidebar = html.slice(html.indexOf('<section class="center-column">'), html.indexOf('<section class="panel controls-panel">'));
   assert.match(sidebar, /class="receiver panel"/);
   assert.match(sidebar, /class="panel output-panel"/);
   assert.doesNotMatch(sidebar, /class="panel presets-panel"/);
@@ -67,3 +67,12 @@ test('mobile unwraps the sidebar and retains source, monitor, presets, output, a
     assert.ok(declarations(selector).some(rule => new RegExp(`(?:^|;)order:${index + 1}(?:;|$)`).test(rule)), selector);
   });
 });
+
+ test('audition tools remain contextual, sticky and render volume is distinct',()=>{
+  assert.match(css,/\.audition-bar\{position:sticky;top:0;z-index:20/);
+  for(const id of ['current-source','file-transport','seek','listen-volume','file-audition','common-controls','export-source'])assert.ok(html.includes(`id="${id}"`),id);
+  assert.ok(html.indexOf('id="play"')<html.indexOf('class="workbench"'));
+  assert.match(html,/试听音量不影响导出/);
+  assert.match(html,/调整后自动更新，保留试听位置/);
+  assert.ok(html.indexOf('id="common-controls"')<html.indexOf('class="advanced-controls"'));
+ });
