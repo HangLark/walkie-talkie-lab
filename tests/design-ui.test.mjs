@@ -87,9 +87,9 @@ test('mobile unwraps the sidebar and retains source, monitor, presets, output, a
 test('voice, transmission, listening position, RF and cues remain clearly separated',()=>{
  const main=html.slice(html.indexOf('class="panel presets-panel"'),html.indexOf('<section class="center-column">'));
  for(const id of ['radio','perspective','preset-state'])assert.ok(main.includes(`id="${id}"`));
- assert.match(main,/5 种人声音色/);assert.match(main,/只切换人声音色/);
+ assert.match(main,/窄带 FM 实验模型/);assert.match(main,/不代表不同型号设备/);assert.doesNotMatch(main,/5 种人声音色/);
  assert.ok(html.indexOf('id="rf-presets"')<html.indexOf('class="advanced-controls"'));
  const cues=html.slice(html.indexOf('class="cue-controls"'),html.indexOf('id="parameter-controls"'));
  for(const id of ['permit','cueLevel','tailMs','cue-help'])assert.ok(cues.includes(`id="${id}"`));
- assert.match(html,/恢复当前音色/);
+ assert.match(html,/恢复语音基线/);
 });

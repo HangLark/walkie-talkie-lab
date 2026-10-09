@@ -9,46 +9,19 @@ function event(seed,quality=100,rate=48000,tailMs=110){
  k.setParams({tx:false});k.processSample(0);
  return {k,open,tail:{...k.tailCue},length:k.releaseLength};
 }
-test('same seed reproduces analog cues; distinct seeds vary event shape and waveform',()=>{
- const source=quiet(4800);
- assert.deepEqual(renderRadio(source,48000,params,1234),renderRadio(source,48000,params,1234));
- assert.notDeepEqual(renderRadio(source,48000,params,1234),renderRadio(source,48000,params,5678));
- assert.notDeepEqual(event(1234).open,event(5678).open);
- assert.notDeepEqual(event(1234).tail,event(5678).tail);
+test('same seed reproduces FM channel; different seeds vary finite-CNR reception',()=>{
+ const source=quiet(4800),p={...params,quality:80};
+ assert.deepEqual(renderRadio(source,48000,p,1234),renderRadio(source,48000,p,1234));
+ assert.notDeepEqual(renderRadio(source,48000,p,1234),renderRadio(source,48000,p,5678));
+ assert.deepEqual(renderRadio(source,48000,params,1234),renderRadio(source,48000,params,5678));
 });
-test('each analog PTT gets new envelope without resetting sample-noise stream',()=>{
- const {k,open}=event(1234);k.process(quiet(20000));
- k.setParams({tx:true});k.processSample(0);
- assert.notDeepEqual(k.openCue,open);assert.equal(k.burstCount,2);
- const before={...k.openCue},seed=k.cueSeed;
- k.setParams({tx:true});k.process(quiet(500));
- assert.deepEqual(k.openCue,before);assert.equal(k.cueSeed,seed);
+test('analog keying never resets channel PRNG or draws synthetic cue envelopes',()=>{
+ const k=new RadioKernel(48000,{...params,quality:80},123);k.process(quiet(100));const seed=k.fm.seed,cueSeed=k.cueSeed;
+ k.setParams({tx:false});k.process(quiet(100));assert.notEqual(k.fm.seed,seed);
+ k.setParams({tx:true});k.processSample(0);assert.equal(k.cueSeed,cueSeed);assert.equal(k.burstCount,2);
 });
-test('event parameters have narrow bounded quality-dependent variation at all rates',()=>{
- for(const rate of [8000,22050,44100,48000,96000,192000])for(let seed=1;seed<=60;seed++){
-  const strong=event(seed,100,rate,200),weak=event(seed,15,rate,200);
-  for(const {k,open,tail,length} of [strong,weak]){
-   assert.ok(open.duration>=.021 && open.duration<=.024);
-   assert.ok(open.duration*rate<=k.delaySamples);
-   assert.ok(open.gain>=.36 && open.gain<=.53);
-   assert.ok(open.power>=1.55 && open.power<=2.35);
-   assert.ok(tail.attack>=.002 && tail.attack<=.005);
-   assert.ok(tail.gain>=.435 && tail.gain<=.65);
-   assert.ok(tail.power>=1.2 && tail.power<=1.9);
-   assert.ok(length>=Math.round(rate*.19) && length<=Math.round(rate*.2));
-  }
-  assert.ok(weak.open.gain>strong.open.gain);
-  assert.ok(weak.tail.gain>strong.tail.gain);
-  assert.ok(weak.tail.attack>=strong.tail.attack);
-  assert.ok(weak.length<=strong.length);
- }
-});
-test('cue event PRNG is independent of elapsed sample-noise draws',()=>{
- const a=new RadioKernel(48000,{...params,tx:false},42),b=new RadioKernel(48000,{...params,tx:false},42);
- a.process(quiet(128));b.process(quiet(15000));
- a.setParams({tx:true});b.setParams({tx:true});a.processSample(0);b.processSample(0);
- assert.deepEqual(a.openCue,b.openCue);assert.equal(a.cueSeed,b.cueSeed);
- assert.notEqual(a.seed,b.seed);
+test('analog tail cap uses exact real time at every sample rate',()=>{
+ for(const rate of [8000,22050,44100,48000,96000,192000])for(const ms of [0,55,110,200])assert.equal(event(22,80,rate,ms).length,Math.round(rate*ms/1000));
 });
 test('exact fixed permit waveforms are seed-invariant; digital receiver has no invented cue',()=>{
  for(const rate of [8000,44100,48000,192000])for(const permit of ['single','triple']){
@@ -66,7 +39,7 @@ test('exact fixed permit waveforms are seed-invariant; digital receiver has no i
  }
  for(const seed of [1,20,500])assert.ok(renderRadio(quiet(5000),48000,{...params,radio:'digital'},seed).every(x=>x===0));
 });
-test('varied analog cues remain finite, partition-invariant and within export drain',()=>{
+test('FM carrier tails remain finite, partition-invariant and within export drain',()=>{
  for(const rate of [8000,44100,48000,192000]){
   const p={...params,quality:25,tailMs:200},a=new RadioKernel(rate,p,42),b=new RadioKernel(rate,p,42);
   const source=quiet(Math.round(rate*.08));source.fill(.1);

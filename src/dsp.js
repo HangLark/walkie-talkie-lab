@@ -1,5 +1,7 @@
-/** Shared, allocation-free per-sample radio sound-design kernel. Not a hardware/codec emulator. */
-export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 65, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 3, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, vox: false, gateDry: false, voxThreshold: -42, tx: true });
+import { AnalogFM, qualityToCnrDb } from './analog-fm.js?v=fm-baseband-v1';
+/** Shared, allocation-free per-sample approximate radio audio kernel. Not a hardware/codec emulator. */
+export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 0, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 0, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, vox: false, gateDry: false, voxThreshold: -42, tx: true });
+// Legacy stress-test configurations; not user-facing device models or calibrated presets.
 export const PRESETS = Object.freeze({
   patrol: { name: '巡逻频道', description: '模拟接收端：清晰窄带语音、开台声与可调静噪尾音', ...DEFAULTS },
   operator: { name: '警务手台', description: '操作员监听：三段本机许可音 + 发话侧音；并非远端接收的提示音', ...DEFAULTS, perspective: 'operator', radio: 'digital', quality: 96, noise: 2, tailMs: 0, drive: 1.2 },
@@ -11,17 +13,14 @@ export const PRESETS = Object.freeze({
 // Timbre is independent of transport, listening perspective, RF and operating cues.
 export const TIMBRE_KEYS = Object.freeze(['highpass','lowpass','drive','compression','leveler','emphasis','speaker','resonanceHz','resonanceQ','body']);
 const timbre = (name, tag, description, values) => Object.freeze({name, tag, description, params:Object.freeze(Object.fromEntries(TIMBRE_KEYS.map(key=>[key,values[key] ?? DEFAULTS[key]])))});
+// One conservative, uncalibrated baseline. The legacy key is retained for reset compatibility.
 export const TIMBRE_PROFILES = Object.freeze({
-  clean: timbre('清晰直通','CLEAR DIRECT','较宽频带、轻压缩与平直输出，保留说话的自然起伏',{highpass:220,lowpass:3800,drive:1,compression:1.5,leveler:20,emphasis:.3,speaker:0}),
-  patrol: timbre('经典手台','CLASSIC HANDHELD','中频靠前、适度压实，熟悉的窄带手台质感',{}),
-  mini: timbre('迷你喇叭','SMALL SPEAKER','薄而集中的中高频、明显的小喇叭共振',{highpass:650,lowpass:2450,drive:1.7,compression:4.5,leveler:60,emphasis:1.6,speaker:5.5,resonanceHz:1850,resonanceQ:1.8,body:-6}),
-  dispatch: timbre('温厚台站','WARM CONSOLE','保留更多低中频、较柔和的动态与宽缓共振',{highpass:180,lowpass:3200,drive:1.1,compression:2,leveler:35,emphasis:.5,speaker:1.8,resonanceHz:950,resonanceQ:.7,body:3.5}),
-  compact: timbre('紧实通话','COMPACT SPEECH','更稳定的语音电平、收紧低中频与清晰的字头；不模拟语音编解码器',{highpass:350,lowpass:2950,drive:1.15,compression:6.5,leveler:90,emphasis:.4,speaker:4.5,resonanceHz:2200,resonanceQ:.65,body:-4})
+  patrol: timbre('窄带语音基线','UNCALIBRATED BASELINE','300–3000 Hz 语音链路近似，尚未通过真实设备配对录音校准。',{})
 });
 export const CHANNEL_PROFILES = Object.freeze({
   stable:Object.freeze({name:'稳定',description:'强信号、少底噪',params:Object.freeze({quality:100,noise:3,squelch:18})}),
-  varying:Object.freeze({name:'起伏',description:'信号起伏，模拟渐增嘶声 / 数字式间断',params:Object.freeze({quality:62,noise:24,squelch:18})}),
-  fringe:Object.freeze({name:'临界',description:'明显衰落、可能静噪或断续',params:Object.freeze({quality:30,noise:43,squelch:22})})
+  varying:Object.freeze({name:'中等 C/N',description:'模拟：静态中等 C/N；数字：实验性丢帧',params:Object.freeze({quality:62,noise:24,squelch:18})}),
+  fringe:Object.freeze({name:'低 C/N',description:'模拟：静态低 C/N，可能静噪；数字：实验性断续',params:Object.freeze({quality:30,noise:43,squelch:22})})
 });
 export function applyTimbre(current,key) { return sanitizeParams({...current,...TIMBRE_PROFILES[key]?.params}); }
 export function applyChannel(current,key) { return sanitizeParams({...current,...CHANNEL_PROFILES[key]?.params}); }
@@ -120,6 +119,7 @@ export class RadioKernel {
     this.cueSeed = ((seed >>> 0) ^ 0x51c0a7e3) >>> 0 || 1;
     this.openCue = { duration: .024, gain: .38, power: 2 };
     this.tailCue = { attack: .003, gain: .48, power: 1.5 };
+    this.fm = new AnalogFM(sampleRate, { seed: seed ^ 0x464d1234 }); this.fmDrainSamples = Math.ceil(sampleRate*.02); this.fmAcquire = 0; this.fmRxOpen = false;
     this.rate = sampleRate; this.target = sanitizeParams(params); this.p = { ...this.target }; this.seed = seed >>> 0 || 1;
     this.hp2 = new Biquad(); this.lp2 = new Biquad(); this.presence = new Biquad(); this.hp = new Biquad(); this.lp = new Biquad(); this.noiseHP = new Biquad(); this.noiseLP = new Biquad(); this.color = new Biquad(); this.bodyEQ = new Biquad();
     this.noiseScale = Math.sqrt(sampleRate/48000);
@@ -161,10 +161,11 @@ export class RadioKernel {
     const p = this.p, t = this.target;
     for (const key of PARAM_KEYS) p[key] += (t[key] - p[key]) * this.smooth;
     if ((this.tickCount++ & 63) === 0) this.configure();
-    this.signal = this.rf.tick(p.quality);
+    let analogReceiver = this.burstPerspective === 'receiver' && this.burstRadio === 'analog';
+    this.signal = analogReceiver ? p.quality : this.rf.tick(p.quality);
     // Carrier quality drives squelch, independently of word pauses. 120 ms hold + hysteresis.
-    if (this.signal > p.squelch + 4) { this.carrier = true; this.hold = this.rate * .12; }
-    else if (this.signal < p.squelch) { if (--this.hold <= 0) this.carrier = false; }
+    if (!analogReceiver && this.signal > p.squelch + 4) { this.carrier = true; this.hold = this.rate * .12; }
+    else if (!analogReceiver && this.signal < p.squelch) { if (--this.hold <= 0) this.carrier = false; }
     this.rms += (x*x - this.rms) * (1 - Math.exp(-1 / (.012*this.rate)));
     if (10*Math.log10(this.rms + 1e-12) > p.voxThreshold) this.voxHold = this.rate * .25;
     else this.voxHold = Math.max(0, this.voxHold - 1);
@@ -174,27 +175,54 @@ export class RadioKernel {
       const pendingVoice = this.releaseAge >= 0 && this.releaseAge < this.delaySamples;
       this.txAge = 0; this.releaseAge = -1; this.burstCount++;
       this.burstPerspective = t.perspective; this.burstRadio = t.radio; this.burstPermit = t.permit;
-      if (this.burstPerspective === 'receiver' && this.burstRadio === 'analog') this.startReceiverCue();
+      // Analog receiver opening is generated by the FM carrier/filter, not a cue.
       // Fast re-key keeps queued speech and its current delay rather than clearing a syllable.
       if (!pendingVoice) {
         this.delaySamples = Math.round(this.rate * (t.perspective === 'operator' && t.permit !== 'off' ? .09 : .024));
         this.delayBuffer.fill(0); this.delayWrite = 0; this.frames.reset();
+        if (this.burstPerspective === 'receiver' && this.burstRadio === 'analog') { this.fmAcquire = Math.ceil(this.rate*.016); this.carrier = false; this.hold = 0; }
       }
     }
     if (this.wasTransmit && !transmit) {
       this.releaseAge = 0; this.endCount++;
-      this.releaseLength = this.burstRadio === 'analog' && this.burstPerspective === 'receiver' ? this.endReceiverCue(t.tailMs) : Math.round(this.rate*(this.burstPerspective === 'operator' ? .012 : 0));
+      this.releaseLength = this.burstRadio === 'analog' && this.burstPerspective === 'receiver' ? Math.round(this.rate*t.tailMs/1000) : Math.round(this.rate*(this.burstPerspective === 'operator' ? .012 : 0));
     }
     this.wasTransmit = transmit;
-    const draining = !transmit && this.releaseAge >= 0 && this.releaseAge < this.delaySamples;
+    analogReceiver = this.burstPerspective === 'receiver' && this.burstRadio === 'analog';
+    const draining = !transmit && this.releaseAge >= 0 && this.releaseAge < this.delaySamples + (analogReceiver ? this.fmDrainSamples : 0);
     const local = this.burstPerspective === 'operator';
     const receiving = (transmit || draining) && (local || this.carrier);
     const gateTarget = receiving ? 1 : 0;
-    this.gate += (gateTarget - this.gate) * (1 - Math.exp(-1 / (this.rate * (gateTarget ? .003 : .006))));
+    if (!analogReceiver) this.gate += (gateTarget - this.gate) * (1 - Math.exp(-1 / (this.rate * (gateTarget ? .003 : .006))));
     // Delay only wet voice, preserving the first syllable behind the opening cue.
     const read = (this.delayWrite - this.delaySamples + this.delayBuffer.length) % this.delayBuffer.length;
     this.delayBuffer[this.delayWrite] = transmit ? x : 0;
     x = this.delayBuffer[read]; this.delayWrite = (this.delayWrite+1) % this.delayBuffer.length;
+    let noise = 0;
+    if (analogReceiver) {
+      // Source leveling is optional; default zero preserves microphone dynamics.
+      x = this.leveler.tick(x, p.leveler);
+      this.fm.setCnrDb(qualityToCnrDb(p.quality));
+      x = this.fm.processSample(x, transmit || draining);
+      // Squelch observes high-frequency discriminator noise, never source level.
+      const closeHz = 1800 * Math.exp(-p.squelch/33);
+      if (this.fmAcquire > 0) { this.fmAcquire--; this.carrier = false; }
+      else if (this.fm.discriminatorNoiseHz < closeHz*.8 && this.fm.channelPower > .01) {
+        this.carrier = true; this.hold = this.rate*.12;
+      } else if (this.fm.discriminatorNoiseHz > closeHz || this.fm.channelPower <= .01) {
+        if (!transmit && !draining) this.hold = Math.min(this.hold, this.rate*.006);
+        if (--this.hold <= 0) this.carrier = false;
+      }
+      const tailAge = this.releaseAge - this.delaySamples - this.fmDrainSamples;
+      const tail = !transmit && !draining && tailAge >= 0 && tailAge < this.releaseLength;
+      const preclose = !transmit && this.releaseLength === 0 && this.releaseAge >= this.delaySamples + this.fmDrainSamples - Math.ceil(this.rate*.01);
+      const open = (transmit || draining || tail) && this.carrier && !preclose;
+      this.fmRxOpen = Boolean(open);
+      this.gate += ((open ? 1 : 0)-this.gate) * (1-Math.exp(-1/(this.rate*(open?.003:preclose?.001:.003))));
+      if (!transmit && !draining && this.releaseLength === 0) this.gate = 0;
+      this.fade = this.gate;
+    } else {
+    this.fmRxOpen = false;
     x = this.leveler.tick(this.hp2.tick(this.hp.tick(x)), p.leveler);
     const absolute = Math.abs(x); const a = absolute > this.env ? this.attack : this.release; this.env = a*this.env + (1-a)*absolute;
     const over = Math.max(0, 20*Math.log10(this.env + 1e-12) + 20);
@@ -202,7 +230,7 @@ export class RadioKernel {
     this.pre += this.emphasisA*(x-this.pre); x += p.emphasis*(x-this.pre);
     x = Math.tanh(x*p.drive) / Math.sqrt(p.drive);
     x = this.lp2.tick(this.lp.tick(x));
-    const noise = this.noiseLP.tick(this.noiseHP.tick(this.random()*2-1)) * this.noiseScale;
+    noise = this.noiseLP.tick(this.noiseHP.tick(this.random()*2-1)) * this.noiseScale;
     const reception = local || this.burstRadio === 'digital' ? 1 : clamp(this.signal / 32, 0, 1);
     this.fade += ((receiving ? reception : 0) - this.fade) * this.fadeSmooth;
     x = x*this.fade + noise * (local || this.burstRadio === 'digital' ? 0 : p.noise/100) * (.025 + (1-this.signal/100)**2*.5);
@@ -210,6 +238,7 @@ export class RadioKernel {
     const dryEmphasis = (x + p.emphasis*(1-this.emphasisA)*this.de) / (1 + p.emphasis*(1-this.emphasisA));
     this.de += this.emphasisA*(dryEmphasis-this.de); x = dryEmphasis;
     if (this.burstRadio === 'digital' && !local) x = this.frames.tick(x, this.signal);
+    }
     x = this.presence.tick(this.color.tick(x*this.gate));
     // Zero body gain is a true bypass, preserving the original default waveform.
     if (p.body !== 0) x = this.bodyEQ.tick(x);
@@ -224,14 +253,14 @@ export class RadioKernel {
           const envelope = Math.min(1, local/.002, (pulseDuration-local)/.003);
           cue = .22 * envelope * Math.sin(2*Math.PI*(this.burstPermit === 'single' ? 960 : PERMIT_FREQUENCIES[slot])*age);
         }
-      } else if (this.burstPerspective === 'receiver' && this.burstRadio === 'analog' && age < this.openCue.duration) {
+      } else if (!analogReceiver && this.burstPerspective === 'receiver' && this.burstRadio === 'analog' && age < this.openCue.duration) {
         const envelope = Math.sin(Math.PI*age/this.openCue.duration)**this.openCue.power;
         cue = noise*this.openCue.gain*envelope;
         // Digital receiver opening is clean, not an invented courtesy/permit beep.
       }
     }
     const endSample = this.releaseAge-this.delaySamples;
-    if (!transmit && endSample >= 0 && endSample < this.releaseLength) {
+    if (!analogReceiver && !transmit && endSample >= 0 && endSample < this.releaseLength) {
       const seconds = endSample/this.rate, duration = this.releaseLength/this.rate;
       const envelope = Math.min(1, seconds/this.tailCue.attack) * (1-seconds/duration)**this.tailCue.power;
       cue += this.burstPerspective === 'receiver' && this.burstRadio === 'analog' ? noise*this.tailCue.gain*envelope : noise*.14*Math.exp(-seconds*350)*Math.min(1,seconds/.001);
@@ -239,10 +268,13 @@ export class RadioKernel {
     if (transmit) this.txAge++;
     if (this.releaseAge >= 0) this.releaseAge++;
     // Cues bypass speech deemphasis/compression and noise amount; output and A/B still apply.
-    const wet = Math.tanh((x + cue*p.cueLevel/100)*1.25) * .96;
+    const absX = Math.abs(x);
+    // Transparent below .85; soft safety knee protects against unsquelched FM noise.
+    const fmSafe = absX <= .85 ? x : Math.sign(x)*(.85+.11*Math.tanh((absX-.85)/.11));
+    const wet = analogReceiver ? fmSafe : Math.tanh((x + cue*p.cueLevel/100)*1.25) * .96;
     this.dryGate += ((transmit ? 1 : 0) - this.dryGate) * this.fadeSmooth;
     const dry = clamp(Number.isFinite(input) ? input : 0, -1, 1) * (t.gateDry ? this.dryGate : 1);
-    const out = clamp((wet*p.mix + dry*(1-p.mix)) * p.output/100, -.98, .98);
+    const out = clamp((wet*p.mix + dry*(1-p.mix)) * p.output/100, -.97999996, .97999996);
     this.meterIn = Math.max(Math.abs(Number.isFinite(input) ? input : 0), this.meterIn*this.meterDecay);
     this.meterOut = Math.max(Math.abs(out), this.meterOut*this.meterDecay);
     return Number.isFinite(out) ? out : 0;

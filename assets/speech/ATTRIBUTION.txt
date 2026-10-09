@@ -1,0 +1,54 @@
+Speech: CMU ARCTIC 0.95 (SLT/BDL), Carnegie Mellon University;
+John Kominek and Alan W. Black.
+Copyright (c) 2003 Carnegie Mellon University. All Rights Reserved.
+
+Used under the included complete CMU ARCTIC licenses:
+COPYING-slt.txt and COPYING-bdl.txt (identical license text).
+
+Modifications: Original human-recorded utterances a0001–a0003 concatenated
+in order with unchanged PCM samples. WAV container rewritten. No gain,
+EQ, dynamics, resampling, trimming, denoising or silence padding applied.
+Radio effects are added by this demo and are not present in the sources.
+These independent studio/read-speech fixtures are not paired recordings
+of clean speech and an actual radio. No source endorsement is implied.
+
+Dataset: http://festvox.org/cmu_arctic/
+License: http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_slt_arctic/COPYING
+License: http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_bdl_arctic/COPYING
+Original README files: slt-README and bdl-README.
+Exact original file URLs, SHA-256 hashes and conversion facts: provenance.json.
+
+The following is the complete, unchanged license notice (applies to both):
+
+This voice is free for use for any purpose (commercial or otherwise)
+subject to the pretty light restrictions detailed below.
+
+############################################################################
+###                                                                       ##
+###                     Carnegie Mellon University                        ##
+###                         Copyright (c) 2003                            ##
+###                        All Rights Reserved.                           ##
+###                                                                       ##
+###  Permission to use, copy, modify,  and licence this software and its  ##
+###  documentation for any purpose, is hereby granted without fee,        ##
+###  subject to the following conditions:                                 ##
+###   1. The code must retain the above copyright notice, this list of    ##
+###      conditions and the following disclaimer.                         ##
+###   2. Any modifications must be clearly marked as such.                ##
+###   3. Original authors' names are not deleted.                         ##
+###                                                                       ##
+###  THE AUTHORS OF THIS WORK DISCLAIM ALL WARRANTIES WITH REGARD TO      ##
+###  THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY   ##
+###  AND FITNESS, IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY         ##
+###  SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES            ##
+###  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN   ##
+###  AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,          ##
+###  ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF       ##
+###  THIS SOFTWARE.                                                       ##
+###                                                                       ##
+############################################################################
+###                                                                       ##
+###  See http://www.festvox.org/cmu_arctic/ for more details              ##
+###                                                                       ##
+############################################################################
+

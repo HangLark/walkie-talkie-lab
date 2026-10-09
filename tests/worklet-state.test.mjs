@@ -11,7 +11,7 @@ async function processorFactory() {
     constructor() { this.messages = []; this.port = { postMessage: m => this.messages.push(m) }; }
   }
   const code = (await readFile(new URL('../src/worklet.js', import.meta.url), 'utf8'))
-    .replace("import { RadioKernel } from './dsp.js?v=sound-profiles-v1';", '');
+    .replace("import { RadioKernel } from './dsp.js?v=fm-baseband-v1';", '');
   vm.runInNewContext(code, { AudioWorkletProcessor, RadioKernel, sampleRate: rate,
     registerProcessor: (_name, cls) => { Processor = cls; } });
   return params => new Processor({ processorOptions: { params } });
@@ -88,4 +88,9 @@ test('repeated file processor replacement cannot inherit old preset cues or tail
     assert.equal(p.kernel.burstCount, 1);
     assert.equal(p.kernel.endCount, 0);
   }
+});
+
+test('FM receiver audibility is separate from keyed transmitter activity', async()=>{
+ const create=await processorFactory();
+ for(const quality of [30,90]){const p=create({...PRESETS.patrol,quality,tx:true});process(p,new Float32Array(24000));assert.equal(latest(p).transmitting,true);assert.equal(latest(p).fmRxOpen,quality===90);}
 });

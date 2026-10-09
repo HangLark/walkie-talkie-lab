@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
 import {DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel} from '../src/dsp.js';
-async function harness({cryptoAvailable=true}={}){
+async function harness({cryptoAvailable=true,fetchImpl}={}){
  let entropy=100;
  const elements=new Map(),workers=[],sources=[],processors=[],downloads=[];
  function element(id=''){const handlers=new Map(),classes=new Set();return {id,tagName:'DIV',style:{setProperty(){}},children:[],dataset:{},checked:false,disabled:false,value:0,classList:{add(x){classes.add(x);},remove(x){classes.delete(x);},contains(x){return classes.has(x);},toggle(x,v){if(v)classes.add(x);else classes.delete(x);}},addEventListener(n,f){handlers.set(n,f);},fire(n){return handlers.get(n)?.({target:this,preventDefault(){}});},setAttribute(){},append(e){this.children.push(e);},querySelector(){return element();},getBoundingClientRect(){return {width:0};},click(){downloads.push(this.download);}};}
@@ -11,31 +11,31 @@ async function harness({cryptoAvailable=true}={}){
  const document={...element(),getElementById:get,createElement:element,querySelectorAll:()=>[],querySelector:element};
  const gain=()=>({value:1,setTargetAtTime(v){this.value=v;},setValueAtTime(v){this.value=v;},cancelScheduledValues(){},linearRampToValueAtTime(v){this.value=v;}});
  const buffer=(duration=10)=>({sampleRate:48000,duration,length:duration*48000,numberOfChannels:1,getChannelData:()=>new Float32Array(duration*48000).fill(.1)});
- const context={currentTime:0,resume:async()=>{},close(){},createGain:()=>({gain:gain(),connect(){},disconnect(){}}),createBuffer:(channels,length,sampleRate)=>({length,sampleRate,duration:length/sampleRate,copyToChannel(){},getChannelData:()=>new Float32Array(length)}),createMediaStreamSource:()=>({connect(){},disconnect(){}}),createBufferSource:()=>{const s={connect(){},disconnect(){this.disconnected=true;},start(at,offset){this.offset=offset;},stop(){this.stopped=true;}};sources.push(s);return s;}};
+ const context={sampleRate:48000,audioWorklet:{addModule:async()=>{}},currentTime:0,resume:async()=>{},close(){},createGain:()=>({gain:gain(),connect(){},disconnect(){}}),createBuffer:(channels,length,sampleRate)=>({length,sampleRate,duration:length/sampleRate,copyToChannel(){},getChannelData:()=>new Float32Array(length)}),createMediaStreamSource:()=>({connect(){},disconnect(){}}),createBufferSource:()=>{const s={connect(){},disconnect(){this.disconnected=true;},start(at,offset){this.offset=offset;},stop(){this.stopped=true;}};sources.push(s);return s;}};
  class Worker{constructor(){workers.push(this);}postMessage(data){this.sent=data;}terminate(){this.terminated=true;}}
  class AudioWorkletNode{constructor(c,n,options){this.options=options;this.port={postMessage(message){this.lastMessage=message;},close(){}};processors.push(this);}connect(){}disconnect(){this.disconnected=true;}}
  const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
- const scope={crypto:cryptoAvailable?{getRandomValues(a){a[0]=++entropy;return a;}}:undefined,navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){},addEventListener(){}}]})}},document,window:{...element(),isSecureContext:true},DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,AudioWorkletNode,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(){return 1;},clearTimeout(){},URL:class extends URL{static createObjectURL(){return 'blob:test';}static revokeObjectURL(){}},Blob,Float32Array,Math};
- vm.runInNewContext(code+`\nglobalThis.api={controls,format,loadFile,createTakeSeed,demo,startMic,stopMic,prepareMatch,matchKey,checkComparison,ptt,get fileSeed(){return fileSeed;},get micSeed(){return micSeed;},applyPreset,applyRF,updateControls,playFile,stopPlayback,switchMode,setFile,exportWav,finishExport,setup(c,b){context=c;monitorGain=c.createGain();setFile(b,'original.wav');},get params(){return params;},get playing(){return playing;},get pausedAt(){return pausedAt;},get exportBusy(){return exportBusy;}};`,scope);
+ const scope={fetch:fetchImpl,AbortController,crypto:cryptoAvailable?{getRandomValues(a){a[0]=++entropy;return a;}}:undefined,navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){},addEventListener(){}}]})}},document,window:{...element(),isSecureContext:true},DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,AudioWorkletNode,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(){return 1;},clearTimeout(){},URL:class extends URL{static createObjectURL(){return 'blob:test';}static revokeObjectURL(){}},Blob,Float32Array,Math};
+ vm.runInNewContext(code+`\nglobalThis.api={controls,format,meter,ensureAudio,resetContext(){context=null;initPromise=null;},loadFile,createTakeSeed,demo,humanDemo,startMic,stopMic,prepareMatch,matchKey,checkComparison,ptt,get fileSeed(){return fileSeed;},get micSeed(){return micSeed;},applyPreset,applyRF,updateControls,playFile,stopPlayback,switchMode,setFile,exportWav,finishExport,setup(c,b){context=c;monitorGain=c.createGain();setFile(b,'original.wav');},get params(){return params;},get playing(){return playing;},get pausedAt(){return pausedAt;},get exportBusy(){return exportBusy;}};`,scope);
  scope.api.setup(context,buffer());return {...scope,get,workers,sources,processors,downloads,context,buffer};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 test('QA: voice profile preserves active processor, position and unrelated dimensions; paused selection stays paused',async()=>{
  const h=await harness();Object.assign(h.api.params,{perspective:'receiver',radio:'digital',quality:57,noise:29,squelch:23,cueLevel:31,tailMs:75,permit:'off',output:63,mix:0,vox:true,voxThreshold:-37});
- const before={...h.api.params};await h.api.playFile();h.context.currentTime=3.2;h.api.applyPreset('mini');await tick();
+ const before={...h.api.params};await h.api.playFile();h.context.currentTime=3.2;h.api.applyPreset('patrol');await tick();
  assert.equal(h.api.playing,true);assert.equal(h.sources.length,1);assert.equal(h.processors.length,1);assert.ok(!h.sources[0].stopped);assert.ok(!h.processors[0].disconnected);
- for(const key of Object.keys(before))assert.equal(h.api.params[key],TIMBRE_KEYS.includes(key)?TIMBRE_PROFILES.mini.params[key]:before[key],key);
- assert.equal(h.processors[0].port.lastMessage.params.highpass,TIMBRE_PROFILES.mini.params.highpass);
+ for(const key of Object.keys(before))assert.equal(h.api.params[key],TIMBRE_KEYS.includes(key)?TIMBRE_PROFILES.patrol.params[key]:before[key],key);
+ assert.equal(h.processors[0].port.lastMessage.params.highpass,TIMBRE_PROFILES.patrol.params.highpass);
  await h.api.playFile();const count=h.sources.length;h.api.applyPreset('patrol');await tick();assert.equal(h.sources.length,count);assert.equal(h.api.playing,false);assert.equal(h.api.pausedAt,3.2);
 });
 test('QA: modified status and reset track tone only; RF changes are isolated and operator RF is inert',async()=>{
- const h=await harness();h.api.params.radio='digital';h.api.params.cueLevel=24;h.api.applyRF('fringe');assert.equal(h.get('preset-state').textContent,'原始音色');
+ const h=await harness();h.api.params.radio='digital';h.api.params.cueLevel=24;h.api.applyRF('fringe');assert.equal(h.get('preset-state').textContent,'默认基线 · 未校准');
  for(const [key,value] of Object.entries(CHANNEL_PROFILES.fringe.params))assert.equal(h.api.params[key],value);
- h.api.params.drive=3;h.api.updateControls();assert.equal(h.get('preset-state').textContent,'音色已修改');h.get('reset').fire('click');assert.equal(h.get('preset-state').textContent,'原始音色');assert.equal(h.api.params.quality,30);assert.equal(h.api.params.radio,'digital');assert.equal(h.api.params.cueLevel,24);
+ h.api.params.drive=3;h.api.updateControls();assert.equal(h.get('preset-state').textContent,'基线已调整 · 未校准');h.get('reset').fire('click');assert.equal(h.get('preset-state').textContent,'默认基线 · 未校准');assert.equal(h.api.params.quality,30);assert.equal(h.api.params.radio,'digital');assert.equal(h.api.params.cueLevel,24);
  h.api.params.perspective='operator';h.api.updateControls();h.api.applyRF('stable');assert.equal(h.api.params.quality,30);for(const id of ['quality','noise','squelch'])assert.equal(h.get(id).disabled,true);
 });
 test('QA: rapid profile selection then source-mode switch cannot start old file audio',async()=>{
- const h=await harness();await h.api.playFile();h.context.currentTime=2;h.api.applyPreset('mini');h.api.applyPreset('patrol');h.api.switchMode('mic');await tick();
+ const h=await harness();await h.api.playFile();h.context.currentTime=2;h.api.applyPreset('patrol');h.api.applyPreset('patrol');h.api.switchMode('mic');await tick();
  assert.equal(h.api.playing,false);assert.ok(h.sources.every(s=>s.stopped));assert.equal(h.get('export').disabled,true);assert.equal(h.get('file-transport').hidden,true);
 });
 test('QA: replacing source cancels pending export and labels new source',async()=>{
@@ -52,7 +52,7 @@ test('take seed stays stable across file replay, voice profile selection, matchi
  const h=await harness(),seed=h.api.fileSeed;assert.equal(seed,101);
  await h.api.playFile();assert.equal(h.processors.at(-1).options.processorOptions.seed,seed);
  h.api.stopPlayback();await h.api.playFile();assert.equal(h.processors.at(-1).options.processorOptions.seed,seed);
- h.context.currentTime=2;h.api.applyPreset('mini');await tick();assert.equal(h.sources.at(-1).offset,0);assert.ok(!h.sources.at(-1).stopped);assert.equal(h.processors.at(-1).options.processorOptions.seed,seed);
+ h.context.currentTime=2;h.api.applyPreset('patrol');await tick();assert.equal(h.sources.at(-1).offset,0);assert.ok(!h.sources.at(-1).stopped);assert.equal(h.processors.at(-1).options.processorOptions.seed,seed);
  h.api.prepareMatch();assert.equal(h.workers.at(-1).sent.seed,seed);h.api.exportWav();assert.equal(h.workers.at(-1).sent.seed,seed);
  assert.equal(JSON.parse(h.api.matchKey()).seed,seed);
 });
@@ -66,7 +66,7 @@ test('source replacement and a newly generated demo renew seed and reject stale 
 test('each microphone session renews seed while PTT, parameter edits, and file return preserve correct scope',async()=>{
  const h=await harness(),fileSeed=h.api.fileSeed;h.api.switchMode('mic');await h.api.startMic();
  const first=h.api.micSeed,processor=h.processors.at(-1);assert.equal(processor.options.processorOptions.seed,first);assert.equal(h.get('monitor').checked,false);
- h.api.ptt(true);h.api.ptt(false);h.api.applyPreset('dispatch');assert.equal(h.api.micSeed,first);assert.equal(h.processors.at(-1),processor);
+ h.api.ptt(true);h.api.ptt(false);h.api.applyPreset('patrol');assert.equal(h.api.micSeed,first);assert.equal(h.processors.at(-1),processor);
  h.api.stopMic();await h.api.startMic();assert.notEqual(h.api.micSeed,first);assert.equal(h.get('monitor').checked,false);
  h.api.switchMode('file');assert.equal(h.api.fileSeed,fileSeed);await h.api.playFile();assert.equal(h.processors.at(-1).options.processorOptions.seed,fileSeed);
 });
@@ -95,4 +95,60 @@ test('all profile slider values are exactly representable and display without lo
   if(!(key in p.params))continue;const value=p.params[key];assert.ok(value>=min&&value<=max,`${profile}.${key} range`);const steps=(value-min)/step;assert.ok(Math.abs(steps-Math.round(steps))<1e-8,`${profile}.${key} must align to slider step`);assert.equal(parseFloat(h.api.format(value,unit)),value,`${profile}.${key} display`);
  }
  assert.equal(h.api.format(1.15,'×'),'1.15×');assert.equal(h.api.format(1.8,'dB'),'1.8 dB');
+});
+
+test('QA: display describes actual listening path and sidetone suppresses remote RF reading',async()=>{
+ const h=await harness();h.api.updateControls();assert.equal(h.get('screen-preset').textContent,'实验性 FM 接收');assert.equal(h.get('channel').textContent,'RX');
+ h.api.params.radio='digital';h.api.updateControls();assert.equal(h.get('screen-preset').textContent,'数字式接收近似');assert.equal(h.get('radio-screen').textContent,'NO VOCODER');
+ h.api.params.perspective='operator';h.api.updateControls();assert.equal(h.get('screen-preset').textContent,'本机侧音');assert.equal(h.get('channel').textContent,'LOCAL');assert.equal(h.get('quality-screen').textContent,'—');assert.equal(h.get('radio-screen').textContent,'LOCAL AUDIO APPROX.');assert.match(h.get('radio-help').textContent,/不经过远端 FM/);
+});
+
+const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
+const response=(status=200)=>({ok:status===200,status,arrayBuffer:async()=>new ArrayBuffer(8)});
+test('QA: human demo uses bundled source, creates one take seed and never autoplays',async()=>{
+ const requests=[];const h=await harness({fetchImpl:async(url,options)=>{requests.push({url:String(url),options});return response();}});
+ h.context.decodeAudioData=async()=>h.buffer(10.315);const seed=h.api.fileSeed;await h.api.humanDemo('slt');
+ assert.match(requests[0].url,/\/assets\/speech\/clean-human-slt-a0001-a0003.wav$/);assert.ok(requests[0].options.signal);assert.notEqual(h.api.fileSeed,seed);assert.equal(h.api.playing,false);assert.match(h.get('file-name').textContent,/CMU ARCTIC SLT/);assert.equal(h.get('cancel-demo').hidden,true);
+ const current=h.api.fileSeed;h.api.applyPreset('patrol');h.api.exportWav();assert.equal(h.api.fileSeed,current);assert.equal(h.workers.at(-1).sent.seed,current);
+});
+test('QA: missing demo asset, network and decode errors keep the previous file recoverable',async()=>{
+ for(const kind of ['http','network','decode']){
+  const h=await harness({fetchImpl:async()=>{if(kind==='network')throw Error('offline');return response(kind==='http'?404:200);}});h.context.decodeAudioData=async()=>{throw Error('invalid WAV');};const seed=h.api.fileSeed;
+  await h.api.humanDemo('bdl');assert.match(h.get('status-text').textContent,/载入失败/);assert.equal(h.get('file-name').textContent,'original.wav');assert.equal(h.api.fileSeed,seed);assert.equal(h.get('play').disabled,false);assert.equal(h.get('cancel-demo').hidden,true);
+ }
+});
+test('QA: cancel and source-mode switch abort human fetch and ignore late completion',async()=>{
+ for(const action of ['cancel','mic']){
+  const pending=deferred();let signal;const h=await harness({fetchImpl:async(url,options)=>{signal=options.signal;return pending.promise;}});h.context.decodeAudioData=async()=>h.buffer();const seed=h.api.fileSeed;
+  const load=h.api.humanDemo('slt');await tick();if(action==='cancel')h.get('cancel-demo').fire('click');else h.api.switchMode('mic');assert.equal(signal.aborted,true);
+  pending.resolve(response());await load;assert.equal(h.api.fileSeed,seed);assert.equal(h.get('file-name').textContent,'original.wav');assert.equal(h.api.playing,false);assert.equal(h.get('cancel-demo').hidden,true);
+ }
+});
+test('QA: latest human demo wins and late decoding cannot replace a local import',async()=>{
+ const first=deferred();let requests=0;const h=await harness({fetchImpl:async()=>++requests===1?first.promise:response()});h.context.decodeAudioData=async()=>h.buffer();
+ const old=h.api.humanDemo('slt');await tick();await h.api.humanDemo('bdl');const seed=h.api.fileSeed;first.resolve(response());await old;assert.match(h.get('file-name').textContent,/BDL/);assert.equal(h.api.fileSeed,seed);
+ const decoding=deferred();h.context.decodeAudioData=()=>decoding.promise;const pending=h.api.humanDemo('slt');await tick();h.context.decodeAudioData=async()=>h.buffer(3);await h.api.loadFile({name:'local.wav',size:8,arrayBuffer:async()=>new ArrayBuffer(8)});const localSeed=h.api.fileSeed;
+ decoding.resolve(h.buffer());await pending;assert.equal(h.get('file-name').textContent,'local.wav');assert.equal(h.api.fileSeed,localSeed);
+});
+
+test('QA: analog FM fixed-chain controls are visibly inactive and other paths regain their parameters',async()=>{
+ const h=await harness();h.api.updateControls();for(const key of ['highpass','lowpass','drive','compression','emphasis','noise','cueLevel'])assert.equal(h.get(key).disabled,true,key);
+ assert.match(h.get('rf-help').textContent,/35.2 dB/);assert.match(h.get('band-screen').textContent,/固定/);assert.match(h.get('parameter-help').textContent,/灰色参数不参与/);
+ h.api.params.quality=100;h.api.updateControls();assert.match(h.get('rf-help').textContent,/无噪声极限/);
+ h.api.params.radio='digital';h.api.updateControls();for(const key of ['highpass','lowpass','drive','compression','emphasis','noise'])assert.equal(h.get(key).disabled,false,key);
+ h.api.params.perspective='operator';h.api.updateControls();assert.equal(h.get('noise').disabled,true);assert.equal(h.get('cueLevel').disabled,false);
+});
+
+test('QA: closed receiver squelch is distinguished from continued transmission',async()=>{
+ const h=await harness();await h.api.playFile();h.api.meter({input:.1,output:0,signal:30,carrier:false,transmitting:true,fmRxOpen:false});
+ assert.equal(h.get('carrier-text').textContent,'静噪关闭');assert.match(h.get('receiver-status').textContent,/发射仍在进行/);assert.equal(h.api.playing,true);
+ h.api.meter({input:.1,output:.1,signal:90,carrier:true,transmitting:true,fmRxOpen:true});assert.equal(h.get('carrier-text').textContent,'接收');assert.match(h.get('receiver-status').textContent,/静噪开启/);
+ h.api.meter({input:0,output:0,signal:90,carrier:false,transmitting:false});assert.equal(h.get('carrier-text').textContent,'待机');
+});
+
+test('QA: engine requests interactive 48 kHz and discloses actual fallback rate',async()=>{
+ for(const fallback of [false,true]){
+  const h=await harness(),calls=[];h.context.sampleRate=fallback?192000:48000;h.window.AudioContext=function(options){calls.push(options);if(fallback&&calls.length===1){const e=Error('unsupported rate');e.name='NotSupportedError';throw e;}return h.context;};h.api.resetContext();await h.api.ensureAudio();
+  assert.equal(calls[0].sampleRate,48000);assert.equal(calls[0].latencyHint,'interactive');assert.equal(calls.length,fallback?2:1);assert.match(h.get('engine-rate').textContent,fallback?/192.0 kHz.*可能无法稳定/:/48.0 kHz/);
+ }
 });

@@ -1,4 +1,4 @@
-import { renderRadio, sanitizeParams } from './dsp.js?v=sound-profiles-v1';
+import { renderRadio, sanitizeParams } from './dsp.js?v=fm-baseband-v1';
 
 /** Fixed, shared-mask RMS matching, not perceptual loudness or speech recognition. */
 export function prepareComparison(input, rate, settings, seed) {
@@ -19,7 +19,7 @@ export function prepareComparison(input, rate, settings, seed) {
     if(power/frame<threshold)continue;
     for(let j=start+delay;j<start+frame+delay;j++){dryPower+=dry[j]**2;wetPower+=wet[j]**2;count++;}
   }
-  if(count<rate*.3 || dryPower/count<1e-10 || wetPower/count<1e-10)throw Error('有效音频不足或效果静音，无法可靠匹配。');
+  if(count<rate*.3 || dryPower/count<1e-10 || wetPower/count<1e-10)throw Error(p.perspective==='receiver'&&p.radio==='analog'?'有效音频不足或 FM 接收静噪关闭，无法匹配。可提高信号质量或降低静噪门限，再试听。':'有效音频不足或效果静音，无法可靠匹配。');
   const dryRms=Math.sqrt(dryPower/count),wetRms=Math.sqrt(wetPower/count),target=Math.min(dryRms,wetRms);
   let dryGain=target/dryRms,wetGain=target/wetRms,max=0;
   for(let i=0;i<wet.length;i++)max=Math.max(max,Math.abs(dry[i]*dryGain),Math.abs(wet[i]*wetGain));

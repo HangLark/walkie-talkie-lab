@@ -58,7 +58,7 @@ test('rapid repeated toggles leave one active source and old async play cannot r
  });
 
 test('voice and RF profile changes refresh matched snapshots at the same position without changing take or other dimensions',async()=>{
- const h=await harness();h.api.params.cueLevel=28;h.api.prepareMatch();const seed=h.workers.at(-1).sent.seed;h.workers.at(-1).onmessage(readyData());await h.api.playFile();h.context.currentTime=.37;
- h.api.applyPreset('mini');assert.equal(h.api.pausedAt,.37);assert.equal(h.api.params.cueLevel,28);for(const f of h.timers.splice(0))f?.();const old=h.workers.at(-1);
- h.api.applyRF('fringe');assert.ok(old.terminated);for(const f of h.timers.splice(0))f?.();const next=h.workers.at(-1);assert.equal(next.sent.seed,seed);assert.equal(next.sent.params.highpass,TIMBRE_PROFILES.mini.params.highpass);assert.equal(next.sent.params.quality,30);next.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));assert.equal(h.api.playing,true);assert.equal(h.sources.at(-1).offset,.37);
+ const h=await harness();h.api.params.cueLevel=28;h.api.params.drive=3;h.api.prepareMatch();const seed=h.workers.at(-1).sent.seed;h.workers.at(-1).onmessage(readyData());await h.api.playFile();h.context.currentTime=.37;
+ h.api.applyPreset('patrol');assert.equal(h.api.pausedAt,.37);assert.equal(h.api.params.cueLevel,28);for(const f of h.timers.splice(0))f?.();const old=h.workers.at(-1);
+ h.api.applyRF('fringe');assert.ok(old.terminated);for(const f of h.timers.splice(0))f?.();const next=h.workers.at(-1);assert.equal(next.sent.seed,seed);assert.equal(next.sent.params.highpass,TIMBRE_PROFILES.patrol.params.highpass);assert.equal(next.sent.params.quality,30);next.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));assert.equal(h.api.playing,true);assert.equal(h.sources.at(-1).offset,.37);
 });

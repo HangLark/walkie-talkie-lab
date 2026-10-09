@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULTS, TIMBRE_KEYS, TIMBRE_PROFILES, CHANNEL_PROFILES, applyTimbre, applyChannel, RadioKernel, renderRadio, sanitizeParams } from '../src/dsp.js';
-import { measureTimbres } from '../scripts/render-timbre-fixtures.mjs';
+import { measureTimbres, speechSurrogate } from '../scripts/render-timbre-fixtures.mjs';
 
-test('five complete tone-only profiles never smuggle in channel, operating or safety state',()=>{
- assert.equal(Object.keys(TIMBRE_PROFILES).length,5);
+test('one conservative baseline never smuggle in channel, operating or safety state',()=>{
+ assert.equal(Object.keys(TIMBRE_PROFILES).length,1);
  const current={...DEFAULTS,radio:'digital',perspective:'operator',quality:21,noise:58,squelch:42,permit:'off',tailMs:55,cueLevel:37,output:29,mix:0,vox:true,voxThreshold:-31,tx:false,gateDry:true};
  for(const [key,profile]of Object.entries(TIMBRE_PROFILES)){
   assert.deepEqual(Object.keys(profile.params),[...TIMBRE_KEYS]);
@@ -15,10 +15,10 @@ test('five complete tone-only profiles never smuggle in channel, operating or sa
  assert.deepEqual(applyTimbre(current,'not-a-profile'),sanitizeParams(current));
 });
 test('RF quick choices are immutable and leave voice, radio style and perspective alone',()=>{
- const original=applyTimbre({...DEFAULTS,radio:'digital',perspective:'operator',vox:true,tx:false},'mini');
+ const original=applyTimbre({...DEFAULTS,radio:'digital',perspective:'operator',vox:true,tx:false},'patrol');
  for(const key of Object.keys(CHANNEL_PROFILES)){
   const next=applyChannel(original,key);for(const name of Object.keys(DEFAULTS))assert.equal(next[name],['quality','noise','squelch'].includes(name)?CHANNEL_PROFILES[key].params[name]:original[name]);
-  assert.deepEqual(applyTimbre(next,'dispatch'),applyChannel(applyTimbre(original,'dispatch'),key));
+  assert.deepEqual(applyTimbre(next,'patrol'),applyChannel(applyTimbre(original,'patrol'),key));
  }
 });
 test('new resonance/body parameters are bounded and the classic profile equals defaults',()=>{
@@ -36,9 +36,20 @@ test('profiles and rapid tone transitions remain finite and bounded at browser r
   for(const key of keys){const out=renderRadio(new Float32Array(Math.round(rate*.03)).fill(.2),rate,applyTimbre(DEFAULTS,key),99);assert.ok(out.every(x=>Number.isFinite(x)&&Math.abs(x)<=.98));}
  }
 });
-test('same-source RMS-matched profiles are materially distinct without cues or RF noise',()=>{
- const {stats,pairs}=measureTimbres();
+test('baseline render is identical to DEFAULTS and level matching remains bounded',()=>{
+ const {stats}=measureTimbres();
  for(const metric of Object.values(stats)){assert.ok(Math.abs(metric.matchedRms-.055)<1e-7);assert.ok(metric.peak<.95);}
- for(const [pair,difference]of Object.entries(pairs))assert.ok(difference>.3,`${pair}: ${difference}`);
- assert.ok(stats.clean.quietLoudContrastDb-stats.compact.quietLoudContrastDb>2.5,'compact reduces level contrasts more than clear direct');
+ for(const rate of [8000,24000,48000]){
+  const source=speechSurrogate(rate,.7);
+  assert.deepEqual(renderRadio(source,rate,applyTimbre(DEFAULTS,'patrol'),99),renderRadio(source,rate,DEFAULTS,99));
+ }
+});
+test('advanced calibration extremes and rapid retuning remain finite and bounded',()=>{
+ for(const rate of [8000,22050,44100,48000,96000,192000]){
+  const k=new RadioKernel(rate,DEFAULTS);
+  for(let i=0;i<rate/4;i++){
+   if(i%503===0)k.setParams(i%2?{highpass:800,lowpass:1600,drive:5,compression:8,speaker:6,resonanceHz:2400,resonanceQ:3,body:6}:{highpass:150,lowpass:4200,drive:1,compression:1,speaker:0,resonanceHz:800,resonanceQ:.5,body:-9});
+   const value=k.processSample(Math.sin(i*.17)*.8);assert.ok(Number.isFinite(value)&&Math.abs(value)<=.98);
+  }
+ }
 });

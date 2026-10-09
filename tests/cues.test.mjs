@@ -9,19 +9,17 @@ function burst(rate,params={},duration=.3){
  k.setParams({tx:false});const end=k.process(new Float32Array(Math.round(rate*.4)));
  return {k,start,end};
 }
-test('silent PTT has measurable receiver start and end cues with noise slider at zero',()=>{
+test('noiseless analog PTT is silent at opening and carrier release',()=>{
  for(const rate of [8000,22050,44100,48000,96000,192000]){
-  const {start,end,k}=burst(rate);
-  assert.ok(rms(start.slice(0,Math.round(rate*.024)))>.02,`start ${rate}`);
-  assert.ok(rms(end.slice(Math.round(rate*.027),Math.round(rate*.10)))>.015,`end ${rate}`);
-  assert.ok(rms(start.slice(Math.round(rate*.1)))<1e-9);
-  assert.ok(rms(end.slice(Math.round(rate*.3)))<1e-9);
+  const {start,end,k}=burst(rate);assert.equal(rms(start),0);assert.equal(rms(end),0);
   assert.equal(k.burstCount,1);assert.equal(k.endCount,1);
  }
 });
-test('cue gain zero disables synthetic cues; tail zero removes receiver end noise',()=>{
- const silent=burst(48000,{cueLevel:0});assert.equal(rms(silent.start),0);assert.equal(rms(silent.end),0);
- const noTail=burst(48000,{tailMs:0});assert.ok(rms(noTail.start)>.005);assert.equal(rms(noTail.end),0);
+test('analog noise comes from FM channel, ignores synthetic cue/noise knobs, and tail is bounded',()=>{
+ const a=burst(48000,{quality:85,cueLevel:0,noise:0}),b=burst(48000,{quality:85,cueLevel:100,noise:100});
+ assert.deepEqual(a.start,b.start);assert.deepEqual(a.end,b.end);assert.ok(rms(a.start)>.001);
+ const noTail=burst(48000,{quality:85,tailMs:0});assert.ok(rms(noTail.end.slice(4800))<.0001);
+ assert.ok(rms(a.end.slice(14400))<1e-9);
 });
 test('operator permit single/triple are local only, selectable and end without a roger tone',()=>{
  for(const permit of ['single','triple']){

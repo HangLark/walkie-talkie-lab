@@ -1,0 +1,133 @@
+{
+  "dataset": "CMU ARCTIC 0.95",
+  "download_date_utc": "2026-10-09",
+  "dataset_url": "http://festvox.org/cmu_arctic/",
+  "creators": "John Kominek and Alan W. Black; Carnegie Mellon University",
+  "copyright": "Copyright (c) 2003 Carnegie Mellon University. All Rights Reserved.",
+  "license_files": [
+    "COPYING-slt.txt",
+    "COPYING-bdl.txt"
+  ],
+  "license_urls": [
+    "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_slt_arctic/COPYING",
+    "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_bdl_arctic/COPYING"
+  ],
+  "license_summary": "Permission for any purpose, including commercial, to use, copy, modify, and licence; retain copyright notice, conditions, disclaimer and author names, and clearly mark modifications. Read attached complete notices.",
+  "provenance_limits": "Official Festvox HTTP URLs used because HTTPS returned 502. These are human source recordings in wav/, not synthesized prompt-wav/ files. Independently recorded studio/read-speech fixtures: not the same speakers, words, equipment or conditions as the police radio references; never describe them as paired clean/real recordings. Local SHA-256 hashes ensure future reproducibility but are not publisher-signed checksums.",
+  "files": [
+    {
+      "filename": "slt_arctic_a0001.wav",
+      "source_url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_slt_arctic/wav/arctic_a0001.wav",
+      "sha256": "7862eb2cccb56875910f6bf46f9b8d26dac36e7672829aabe3956b0837ae122e",
+      "bytes": 107404,
+      "duration_seconds": 3.355,
+      "sample_rate": 16000,
+      "channels": 1,
+      "format": "PCM signed 16-bit little endian",
+      "peak_abs": 0.649932861328125,
+      "rms": 0.11438658794204618,
+      "dc_offset": -2.74510390712323e-05,
+      "clipped_samples": 0,
+      "modifications": "None. Downloaded original WAV, bytes unchanged."
+    },
+    {
+      "filename": "slt_arctic_a0002.wav",
+      "source_url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_slt_arctic/wav/arctic_a0002.wav",
+      "sha256": "d09c9367d7e756cb5f6854d4e8a279e6e6e543fafeb4d04b32757c639f7f38d3",
+      "bytes": 120204,
+      "duration_seconds": 3.755,
+      "sample_rate": 16000,
+      "channels": 1,
+      "format": "PCM signed 16-bit little endian",
+      "peak_abs": 0.649932861328125,
+      "rms": 0.09592121309368207,
+      "dc_offset": 3.780105936225657e-05,
+      "clipped_samples": 0,
+      "modifications": "None. Downloaded original WAV, bytes unchanged."
+    },
+    {
+      "filename": "slt_arctic_a0003.wav",
+      "source_url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_slt_arctic/wav/arctic_a0003.wav",
+      "sha256": "0b32e00846e132826f46d7e5cabb2d8b370a5dc654bac0447cb63285f81cc413",
+      "bytes": 102606,
+      "duration_seconds": 3.2050625,
+      "sample_rate": 16000,
+      "channels": 1,
+      "format": "PCM signed 16-bit little endian",
+      "peak_abs": 0.649932861328125,
+      "rms": 0.14699737720917574,
+      "dc_offset": 7.739994790498674e-05,
+      "clipped_samples": 0,
+      "modifications": "None. Downloaded original WAV, bytes unchanged."
+    },
+    {
+      "filename": "clean-human-slt-a0001-a0003.wav",
+      "sha256": "64f362fb768b2800a0e6c2884a6a79be722c1d3b8987a5be83cee40549022790",
+      "bytes": 330126,
+      "duration_seconds": 10.3150625,
+      "source_files": [
+        "slt_arctic_a0001.wav",
+        "slt_arctic_a0002.wav",
+        "slt_arctic_a0003.wav"
+      ],
+      "modifications": "Three consecutive source utterances concatenated in numbered order, including original silences. PCM samples unchanged; WAV header regenerated. No normalization, denoising, filtering, resampling, or radio effects."
+    },
+    {
+      "filename": "bdl_arctic_a0001.wav",
+      "source_url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_bdl_arctic/wav/arctic_a0001.wav",
+      "sha256": "2594562568c97203d6c3c2c2ff87b9a7c62389100a014934ab0ad39d15af0384",
+      "bytes": 103566,
+      "duration_seconds": 3.2350625,
+      "sample_rate": 16000,
+      "channels": 1,
+      "format": "PCM signed 16-bit little endian",
+      "peak_abs": 0.64996337890625,
+      "rms": 0.07988517144551924,
+      "dc_offset": 1.8000070712626303e-05,
+      "clipped_samples": 0,
+      "modifications": "None. Downloaded original WAV, bytes unchanged."
+    },
+    {
+      "filename": "bdl_arctic_a0002.wav",
+      "source_url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_bdl_arctic/wav/arctic_a0002.wav",
+      "sha256": "88b2c3f29f696637ec34f8a031964920d7e187a903ba88fd720d3cb1b0d50c2a",
+      "bytes": 108046,
+      "duration_seconds": 3.3750625,
+      "sample_rate": 16000,
+      "channels": 1,
+      "format": "PCM signed 16-bit little endian",
+      "peak_abs": 0.64996337890625,
+      "rms": 0.08903152136129933,
+      "dc_offset": -2.9624107800087036e-06,
+      "clipped_samples": 0,
+      "modifications": "None. Downloaded original WAV, bytes unchanged."
+    },
+    {
+      "filename": "bdl_arctic_a0003.wav",
+      "source_url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_bdl_arctic/wav/arctic_a0003.wav",
+      "sha256": "6bf2ec5e40a8a01a690d7aa5d1aa3a1489baae614850c7a716bf00092b005028",
+      "bytes": 107726,
+      "duration_seconds": 3.3650625,
+      "sample_rate": 16000,
+      "channels": 1,
+      "format": "PCM signed 16-bit little endian",
+      "peak_abs": 0.64996337890625,
+      "rms": 0.08988379644765802,
+      "dc_offset": 3.278764926763526e-05,
+      "clipped_samples": 0,
+      "modifications": "None. Downloaded original WAV, bytes unchanged."
+    },
+    {
+      "filename": "clean-human-bdl-a0001-a0003.wav",
+      "sha256": "cef09a538dca0edf415ce8fecf3702da6eec9c4632ed397d5e00f76ce5075a84",
+      "bytes": 319250,
+      "duration_seconds": 9.9751875,
+      "source_files": [
+        "bdl_arctic_a0001.wav",
+        "bdl_arctic_a0002.wav",
+        "bdl_arctic_a0003.wav"
+      ],
+      "modifications": "Three consecutive source utterances concatenated in numbered order, including original silences. PCM samples unchanged; WAV header regenerated. No normalization, denoising, filtering, resampling, or radio effects."
+    }
+  ]
+}

@@ -14,12 +14,12 @@ npm run check     # tests + static build
 node scripts/serve.mjs --dist  # test the production build
 ```
 
-Opening `index.html` directly with `file://` is unsupported. AudioWorklet and microphone access require a secure context (HTTPS or localhost). Use a current Chromium, Firefox, or Safari browser. Actual browser and device capabilities determine accepted input formats and microphone latency.
+Opening `index.html` directly with `file://` is unsupported. AudioWorklet and microphone access require a secure context (HTTPS or localhost). Use a current Chromium, Firefox, or Safari browser. Actual browser and device capabilities determine accepted input formats and microphone latency. The app requests an interactive 48 kHz AudioContext; if that rate is unsupported it uses the browser default and displays the actual rate. Local/demo files are decoded to that same context rate for playback, comparison and export. Rates above 96 kHz show a realtime-performance warning; numerical offline coverage through 192 kHz is not a realtime guarantee.
 
 ## Workflow
 
-1. Import a local WAV, MP3, M4A, OGG, or another format your browser can decode, or try the built-in synthetic test signal. The signal is deliberately not presented as a recording of a real person.
-2. Select one of five **voice-only** profiles: 清晰直通, 经典手台, 迷你喇叭, 温厚台站 or 紧实通话. Each changes bandwidth, dynamics and speaker/body coloration only. Transmission mode (analog/digital-inspired), listening position (receiver/operator), RF conditions (stable/varying/fringe), cues, output, A/B and VOX remain independent. The visible “音色已修改” marker and “恢复当前音色” button apply only to voice settings. Ordinary file playback changes timbre without restarting the processor; matched A/B automatically rebuilds snapshots at the retained position/play intent. Held microphone PTT releases safely on profile selection; monitoring remains unchanged. See [profile definitions and limits](SOUND_PROFILES.md).
+1. Import a local WAV, MP3, M4A, OGG, or another format your browser can decode, or load one of two bundled CMU ARCTIC human read-speech demos (SLT/BDL). These licensed clean recordings are fetched from this site and processed locally; your own audio is never uploaded. The separately labeled synthetic signal is only a technical test. See [speech attribution and full license](assets/speech/ATTRIBUTION.txt).
+2. Start with the single experimental, device-uncalibrated FM baseline. Choose receiving/listening path (experimental analog FM, digital loss demonstration without a vocoder, or approximate local sidetone), then adjust relative channel quality and squelch. Advanced voice parameters are available for analysis; they do not select different devices. “恢复语音基线” restores voice parameters only, preserving source, channel and operating choices. Matched A/B refresh preserves position and play intent; held microphone PTT releases safely and monitoring stays user-controlled. See [baseline behavior](SOUND_PROFILES.md) and the [fidelity ledger](FIDELITY_LEDGER.md).
 3. Use the persistent audition bar to compare dry source (A) and processed radio (B), pause/resume, stop, seek, or loop while adjusting the sound. Listening volume is separate from the processing/output parameters.
 4. Export the complete input with the parameters captured when you clicked export. Export always uses the wet radio effect, current output volume, mono 16-bit PCM, the AudioContext sample rate, and a 350 ms release tail. Preview loop mode and dry A/B do not change the export. Conversion runs in a dedicated worker and can be cancelled.
 
@@ -35,41 +35,44 @@ Preparation is cancellable. Processing/output changes automatically refresh the 
 
 - Explicitly choose the microphone tab and start the microphone. Permission is never requested on page load.
 - Wear headphones first. Monitoring is **off by default**, including each microphone restart. There can still be dangerous feedback if you enable monitoring through speakers; bounded digital samples do not guarantee a safe physical volume.
-- To hear clear PTT cues, select **B 电台**, wear headphones at low volume, then explicitly enable **耳机监听**. With monitoring off, neither voice nor cues reach the speakers; meters can still move. Choose **模拟窄带 + 远端接收** for analog receive opening/noise-tail cues, or **本机操作员** and a permit option for synthesized local talk-permit and operator sidetone. Voice profiles do not change those choices.
+- To hear clear PTT cues, select **B 电台**, wear headphones at low volume, then explicitly enable **耳机监听**. With monitoring off, neither voice nor cues reach the speakers; meters can still move. Choose **实验性模拟 FM + 远端接收** for model-generated carrier/squelch transitions, or **本机操作员** and a permit option for synthesized local talk-permit and operator sidetone. Restoring the voice baseline does not change those choices.
 - Hold PTT, or space when focus is not on another interactive control. PTT itself also supports space/Enter. Releasing, cancelling a pointer gesture, or losing focus ends transmission.
 - VOX is a separate input-level gate with a 250 ms hold, not RF squelch. It is only used for live microphone input. The dry microphone A/B path also respects PTT/VOX.
 - Stop releases every microphone track and closes monitoring. Switching source modes, hiding the page, and leaving the page also release the microphone. Returning requires an explicit restart.
-- This version does not record microphone sessions. WAV export applies to the imported/synthetic file only and is hidden in microphone mode. The file export identifies its source; changing the source or source mode cancels any pending export.
+- This version does not record microphone sessions. WAV export applies to the loaded local/demo file only and is hidden in microphone mode. The file export identifies its source; changing the source or source mode cancels any pending export.
 
 ## Signal model and limitations
 
-This is an artistic radio effect, **not** an exact model of a particular police, military, or commercial radio, nor a P25/DMR vocoder or interoperable radio transmitter. It does not transmit RF, tune frequencies, connect to radio networks, or intercept communications. Voice profiles are sound-design choices, not actual radio channels or device identities.
+The default is now an **experimental generic narrowband FM complex-baseband link** with a line-output listening target. It is not a measured handheld, police-radio model, P25/DMR vocoder or interoperable transmitter. It neither transmits RF nor connects to radio networks. Technical mechanism tests do not establish authentic sound for a particular radio. See [the fidelity ledger](FIDELITY_LEDGER.md) and [FM implementation](ANALOG_FM_MODEL.md).
 
-The shared DSP chain is:
+### Analog receiver (default)
 
 ```
-mono average → wet-voice cue buffer → cascaded high-pass → bounded speech leveler → envelope compressor
-→ preemphasis → modest soft saturation → cascaded low-pass → channel
-→ matched deemphasis → burst-frame channel (digital only) → carrier squelch
-→ two speaker resonances → independent sample-clock cues → bounded output
+clean mono speech → optional input leveler (off by default) → buffered voice
+→ fixed TX bandwidth / 750 µs preemphasis → ±2.5 kHz deviation limiter
+→ complex FM modulator → complex additive Gaussian noise
+→ 6 kHz complex receive low-pass → phase-difference FM discriminator
+→ 750 µs deemphasis / audio low-pass → discriminator-noise squelch
+→ optional output EQ (off by default) → output volume / sample ceiling
 ```
 
-- Default bandwidth: 300–3000 Hz. Cascaded biquads provide stronger out-of-band rejection. Profiles vary bandwidth and speaker/body coloration; see SOUND_PROFILES.md. The default classic profile retains restrained speaker peaks at 1.45 and 2.35 kHz.
-- Speech leveler: one **语音稳幅** control (0–100%, default 65%; other profiles vary). A 12 ms power detector targets 0.075 RMS only above a conservative noise/activity floor. Internal gain is bounded to 0.65–3×; gain reduction takes 12 ms and gain increase 220 ms. Below the activity floor, gain cannot rise above unity and returns toward unity after speech. Low-level background is tracked conservatively, not removed. This is not a voice classifier; loud background can still trigger gain management. Zero bypasses level adjustment.
-- Compressor: −20 dBFS envelope threshold, default 3.5:1 ratio, 4 ms attack, 90 ms release. These are tunable sound-design defaults, not hardware measurements.
-- Preemphasis and deemphasis use a matched one-pole/inverse pair. Saturation and channel damage between them introduce the intended coloration.
-- RF quality creates seeded, correlated slow fades (160 ms smoothing), faster flutter (18 ms smoothing and a modest 3–7 Hz component), and band-limited analog noise. Full quality is perfectly steady; analog voice remains near constant above the modeled receiver threshold, rather than amplitude-modulating every strong FM signal. These are qualitative channel approximations, not measured propagation/RSSI/SINAD or distance predictions. Carrier squelch has a 4-point hysteresis and 120 ms hold driven by simulated RF quality, independently of speech pauses.
-- **Receiver / analog:** a 24 ms shaped opening burst and adjustable 0–200 ms filtered-noise release (110 ms default). Setting tail to zero approximates tail elimination rather than implying every analog system has a long crash. Noise gain is sample-rate normalized. Cue level is independent of channel-noise level and speech compression/deemphasis; output volume and dry/wet selection still apply.
-- **Operator:** optional synthesized single/triple local talk-permit, plus a subtle mechanical-style release click. These are deliberately approximate cues, not Motorola/Harris recordings, exact specified frequencies, or a universal transmitted roger beep. The operator monitor includes processed sidetone as a useful app audition aid; actual radios need not provide that sidetone. Local voice and permit cues bypass remote RF fading, noise, digital loss and receiver squelch. Their controls are disabled in operator perspective.
-- **Digital-inspired receiver:** a brief opening transient and clean gated release, with no analog static tail or end beep. Strong reception preserves the bandwidth-limited speech without mandatory quantization or sample-hold aliasing. Weak reception uses a seeded two-state burst-loss approximation at 20 ms frame intervals, with increasing entry/persistence probabilities below quality 62. The last good frame is repeated only briefly, decaying to zero within 35 ms; 2 ms crossfades soften loss, repeated-frame seams and recovery. Loss history resets for a fresh transmission so stale words do not return. There is no packet network or codec hidden behind this model. This is not IMBE, AMBE, P25, DMR, or a reconstruction of any codec.
-- Wet voice is buffered 24 ms (90 ms with operator permit enabled), then drains before the closing cue so the first and final transmitted samples survive. This adds latency to browser/device latency. Rapid re-key preserves queued voice and the previous buffer delay, replacing any pending end cue. VOX's 250 ms hang prevents cue retrigger between normal word gaps; a new phrase after hang gets a new cue.
-- Cue identity and release duration are captured at their respective transmission boundaries; numeric controls are smoothed over ~20 ms. Timing, filters and cue envelopes use the sample clock, not JavaScript timers.
-- Output uses soft saturation plus a defensive ±0.98 sample clamp. This is sample-peak protection, not a certified true-peak limiter; listening levels still require care.
-- All filter state, timing, and the seeded PRNG run on the sample clock. File preview and offline export use the same `RadioKernel`. Live microphones and file preview run through `AudioWorklet`; offline export runs in a worker.
-- Dry file A/B bypasses radio processing but retains the output-volume control and defensive clamp. It is not a bit-perfect export mode.
-- The initial seed is fixed for reproducible offline exports. Pausing/restarting preview resets DSP state; changing parameters in real time, looping, stereo downmix, and resumed offsets can produce a different history than a fresh full-file export. Exact equivalence is guaranteed for the same mono input, sample rate, seed, parameter schedule, and start state, not across arbitrary UI sessions.
+The 300–3000 Hz voice range, 750 µs emphasis and ±2.5 kHz deviation at nominal 12.5 kHz spacing are generic reference anchors from the [Motorola MTR3000 specification](https://www.motorolasolutions.com/content/dam/msi/docs/business/products/two-way_radios_-_public_safety/base_stations/mtr3000/documents/staticfiles/r3-2-2010a_mtr3000_spec_sht_final.pdf), not an MTR3000 transfer-function fit. Combined TX/RX filter response is not a flat measured hardware bandwidth. The model has no adjacent-channel interference, multipath, capture between competing transmitters, oscillator impairment or measured speaker response.
 
-Engineering background: [TI reference guide (SLWU002)](https://www.ti.com/lit/ug/slwu002/slwu002.pdf) and the [Web Audio API specification](https://www.w3.org/TR/webaudio-1.0/). Neither is a claim of conformance to a specific radio.
+- The relative quality slider maps values below 100 to model C/N = −8 + 0.48 × quality dB; 100 is a mathematical noiseless link. C/N is referenced to noise passing the model's actual receive filter. It is not RSSI, SINAD, distance or a calibrated reception forecast. C/N is stationary for a fixed slider value; do not infer physical motion/fading from the condition shortcuts.
+- Analog hiss emerges from I/Q noise and FM demodulation. The independent injected-noise, legacy drive/compression/emphasis and bandwidth controls are disabled because they do not participate in this fixed FM chain. Input leveler and output EQ are optional explicit aids, defaulting to zero.
+- Squelch detects demodulated high-frequency noise above 4.5 kHz and checks received power. Its model-specific close threshold is 1800 × exp(−squelch/33) Hz RMS, with an 80% opening threshold and 120 ms hold. This is not a calibrated hardware squelch scale.
+- Opening/closing noise comes from carrier/filter/discriminator behavior. No synthesized analog start/tail is added. Tail duration caps the carrier-off noisy gate window after the 24 ms voice buffer and 20 ms filter drain. At the noiseless limit there is no manufactured static. Setting tail to zero suppresses that optional post-carrier window; this does not simulate reverse-burst signaling itself.
+- Internal processing runs at an integer multiple of the audio sample rate at or above 48 kHz, with interpolation/decimation filtering. The added filtering contributes latency; nominal A/B onset alignment cannot cancel frequency-dependent phase/group delay.
+
+### Other paths
+
+Digital-style reception remains a qualitative 20 ms burst-loss demonstration, with brief decaying last-good-frame repetition and crossfaded recovery. There is **no IMBE, AMBE, P25 or DMR vocoder** or calibrated BER-to-loss relation. Local operator sidetone is an app audition aid using the earlier audio-domain approximation. It bypasses remote RF and has optional synthetic single/triple permit tones; they are not branded recordings. Local permit controls are disabled for receiver listening. Neither alternate path should be treated as a physical device replica.
+
+Live PTT/VOX gates and source-workflow safeguards remain shared. Wet audio is buffered and drained before termination; output samples are bounded, but headphone/speaker volume can still be unsafe. A take keeps one seed across preview, comparison and export; source replacement creates a new seed. Exact equivalence requires identical mono input, rate, seed, parameter history and start state, not arbitrary live sessions.
+
+### Clean speech demos
+
+The bundled CMU ARCTIC SLT/BDL samples are independent human studio/read-speech fixtures. Original a0001–a0003 PCM samples are concatenated without EQ, gain changes or resampling. Complete notices, original author credits and modification disclosure ship in [assets/speech/ATTRIBUTION.txt](assets/speech/ATTRIBUTION.txt). These are not paired clean/real-radio recordings, and no police-event audio is bundled. Loading can be cancelled; failed/obsolete requests cannot replace the current file. Playback never starts automatically.
 
 ## Radio behavior references
 
@@ -81,7 +84,7 @@ US public-safety radio sound depends on system, programming and listening positi
 - [Codan P25 training guide via APCO](https://www.apcointl.org/~documents/docs/codan-tg-001-4-0-0-p25-training-guide/?layout=file): digital transmissions use protocol termination; this app does not turn that into an analog noise crash.
 - [W2SJW reference sound collection](https://w2sjw.com/radio_sounds.html): useful comparison material distinguishing local alerts, signaling and received audio. No recordings from this collection are bundled or copied.
 
-These documents support behavior distinctions, not our exact synthesis frequencies, durations, DSP fidelity or perceptual sound quality. No subjective realism certification is claimed. The profile-dependent speaker resonances and broad body EQ remain static sound-design approximations. A measured microphone/speaker impulse response and level-dependent loudspeaker model are deferred pending usable transfer data; no extra hardware model or speaker-volume control was added.
+These documents support behavior distinctions, not our exact synthesis frequencies, durations, DSP fidelity or perceptual sound quality. No subjective realism certification is claimed. The baseline speaker resonances and advanced body EQ remain static, uncalibrated approximations. A measured microphone/speaker impulse response and level-dependent loudspeaker model are deferred pending usable transfer data; no extra hardware model or speaker-volume control was added.
 
 ## Project structure
 

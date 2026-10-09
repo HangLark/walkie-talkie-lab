@@ -1,3 +1,5 @@
+> Historical audio-domain cue model. The current experimental analog receiver no longer uses these synthesized opening/tail envelopes: carrier/filter/discriminator noise supplies its transitions, and `tailMs` caps the actual carrier-off window. The formulas below document the previous implementation only. Local operator permit behavior remains applicable; digital reception still has no analog tail. See ANALOG_FM_MODEL.md and FIDELITY_LEDGER.md for the active analog path.
+
 # Receiver transients and fixed operator signals
 
 This is a bounded sound-design approximation, not a measured Motorola, P25, or other radio implementation. The numeric ranges below are engineering choices. They are not taken from manufacturer measurements. RF quality is an artistic control, not RSSI or SINAD.

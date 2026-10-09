@@ -26,7 +26,7 @@ test('pointer cancellation, keyboard release and blur cannot leave TX latched',a
  for(const release of ['keyup','blur']){document.fire('keydown',{code:'Space',repeat:false});assert.equal(messages.at(-1).params.tx,true);(release==='blur'?window:document).fire(release,{code:'Space'});assert.equal(messages.at(-1).params.tx,false);}
 });
 test('changing preset or VOX while keyed releases PTT and enabling VOX never enables monitor',async()=>{
- const {api,get,messages}=await harness();api.ptt(true);api.applyPreset('mini');assert.equal(messages.at(-1).params.tx,false);assert.equal(get('monitor').checked,false);
+ const {api,get,messages}=await harness();api.ptt(true);api.applyPreset('patrol');assert.equal(messages.at(-1).params.tx,false);assert.equal(get('monitor').checked,false);
  api.ptt(true);get('vox').checked=true;get('vox').fire('change');assert.equal(get('ptt').classList.contains('transmitting'),false);assert.equal(get('monitor').checked,false);
  get('vox').checked=false;get('vox').fire('change');assert.equal(messages.at(-1).params.tx,false);assert.equal(get('ptt').disabled,false);
 });
@@ -38,6 +38,6 @@ test('space on interactive controls is not global PTT; hiding page closes microp
 
 test('profile selection releases held PTT with one atomic new-tone snapshot and preserves VOX settings',async()=>{
  const {api,get,messages}=await harness();api.params.radio='digital';api.params.permit='single';api.params.cueLevel=17;api.ptt(true);const before=messages.length;
- api.applyPreset('compact');assert.equal(messages.length,before+1);const snapshot=messages.at(-1).params;assert.equal(snapshot.tx,false);assert.equal(snapshot.compression,TIMBRE_PROFILES.compact.params.compression);assert.equal(snapshot.radio,'digital');assert.equal(snapshot.permit,'single');assert.equal(snapshot.cueLevel,17);assert.equal(get('monitor').checked,false);
- api.params.vox=true;api.params.voxThreshold=-33;api.applyPreset('dispatch');assert.equal(api.params.vox,true);assert.equal(api.params.voxThreshold,-33);
+ api.applyPreset('patrol');assert.equal(messages.length,before+1);const snapshot=messages.at(-1).params;assert.equal(snapshot.tx,false);assert.equal(snapshot.compression,TIMBRE_PROFILES.patrol.params.compression);assert.equal(snapshot.radio,'digital');assert.equal(snapshot.permit,'single');assert.equal(snapshot.cueLevel,17);assert.equal(get('monitor').checked,false);
+ api.params.vox=true;api.params.voxThreshold=-33;api.applyPreset('patrol');assert.equal(api.params.vox,true);assert.equal(api.params.voxThreshold,-33);
 });
