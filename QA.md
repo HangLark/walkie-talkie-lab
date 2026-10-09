@@ -1,5 +1,31 @@
 # Verification report
 
+## 2026-10-09 PTT / radio-behavior revision
+
+All work remained in the cloud workspace. No user computer, personal microphone, radio recording or RF service was accessed.
+
+### Executed and passed
+
+- `npm run check`: **25 tests passed**, zero failures, successful production build. `node --check` passed for all application/build/server/fixture modules.
+- Silent-input PTT independently verifies audible-energy opening and closing cues at 8, 22.05, 44.1, 48, 96 and 192 kHz, even with channel noise at zero. Cue gain zero and analog tail zero disable their respective effects.
+- Tests verify receiver/local-operator separation, single/triple/off permit choices, clean digital receive termination, 24/90 ms sample-rate-scaled voice buffering, repeated PTT parameter messages, VOX hang without extra bursts, rapid re-key with queued speech preserved, no stuck TX and bounded output.
+- Real app event-handler code executed in a Node VM DOM harness verifies pointer up/cancel/lost capture, keyboard release, blur, preset changes while keyed, VOX switching, interactive-control keyboard exclusion and hidden-page microphone cleanup. This harness is **not** browser event/device validation.
+- Prior file/WAV, Worklet adapter, dry/wet, seeded determinism and offline/live kernel equivalence tests continue passing.
+- `node scripts/render-fixtures.mjs test-results/audio /tmp/radio-baseline.mjs` produced dry synthetic input, four processed preset fixtures, isolated silent-input cue fixtures and original-source-ZIP baseline comparisons. Files and measurements are in ignored `test-results/audio/`; no real speech is represented.
+- At 48 kHz, default analog silent-input opening window RMS is 0.03057 (baseline 0); post-release comparison window RMS is 0.03147 (baseline 0.00121). This is measurable cue energy, **not proof of perceptual quality**. Digital receiver silent-input end RMS is exactly 0. Output fixtures remain bounded.
+- A read-only code review separately checked first/last impulse preservation through 5 ms bursts. The first wet sample is delayed 1152/4320 frames at 48 kHz (24/90 ms).
+
+### Current limits / listening checklist
+
+- This revision has not been subjectively auditioned through headphones. Synthetic fixtures do not establish intelligibility or authenticity on real speech.
+- Browser rendering, actual AudioWorklet scheduling/device latency, permission denial/retry, physical feedback safety, downloads and mobile/touch behavior require independent HTTPS browser QA. Previous cloud-browser failures below are historical, not a fresh claim that browser testing is unavailable.
+- Test microphone with headphones at low volume, manually enable monitoring and select B 电台. The app never enables monitoring on its own. Verify start/end in 巡逻频道, local permit in 警务手台 and clean release in 数字警务.
+- Perspective / style / permit identity applies on next transmission; for files stop/replay. Numeric timbre and cue-gain controls update live. Rapid re-key retains the previous voice-buffer delay until it drains.
+- The police-inspired sound is a sound-design approximation; source references and limitations are in README.md. No manufacturer-exact tone or codec claims.
+- Publishing, remote commit identity and deployment verification are separate from this local test/build report.
+
+## Historical initial-build verification
+
 Date: 2026-10-08. All development and checks were performed in the assigned cloud workspace. No local Mac or personal microphone was accessed.
 
 ## Passed
