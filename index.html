@@ -2,61 +2,65 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#111914"><meta name="description" content="本地运行的对讲机音效工作台：实时麦克风、文件试听与 WAV 导出。">
+  <meta name="theme-color" content="#f6f7f9"><meta name="description" content="本地运行的对讲机音效工作台：实时麦克风、文件试听与 WAV 导出。">
   <title>频段 / RADIO LAB · 对讲机音效工作台</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111914'/%3E%3Cpath d='M16 34h7l4-17 8 32 5-22 4 7h5' fill='none' stroke='%23c5f078' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23232933'/%3E%3Cpath d='M16 34h7l4-17 8 32 5-22 4 7h5' fill='none' stroke='%23ffffff' stroke-width='4'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="./src/style.css">
   <script type="module" src="./src/app.js"></script>
 </head>
 <body>
 <div class="app-shell">
-  <header class="topbar"><a class="brand" href="./" aria-label="频段首页"><span class="brand-icon">≋</span><span>频段<span class="brand-en">RADIO LAB</span></span></a><div class="top-meta"><span class="live-dot"></span> 本地音频引擎 <span class="divider">/</span> <span class="mono">V.01</span></div></header>
+  <header class="topbar"><a class="brand" href="./" aria-label="频段首页"><span class="brand-icon" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span>频段<span class="brand-en">RADIO LAB</span></span></a><div class="top-meta"><span class="live-dot"></span> 本地处理 <span class="divider">/</span> <span class="mono">WORKSPACE 01</span></div></header>
   <main>
-    <section class="title-row"><div><div class="eyebrow">SIGNAL PROCESSING WORKBENCH</div><h1>把声音，调到同一频段。</h1><p>从清晰的近距通话，到断续的野外无线电。</p></div><div class="local-badge"><span>◈</span><div>声音不离开浏览器<small>无上传 · 无账号 · 本地处理</small></div></div></section>
+    <section class="title-row"><div><div class="eyebrow">音频工具 / RADIO EFFECTS</div><h1>对讲机音效工作台<span class="title-mark">01</span></h1><p>载入声音，选择音色，找到你想要的无线电质感。</p></div><div class="local-badge"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 3 4 6v6c0 4 8 9 8 9s8-5 8-9V6z"/><path d="m8 12 3 3 5-6"/></svg><div>声音只留在这里<small>无需上传，也无需账号</small></div></div></section>
     <div class="workbench">
       <section class="panel source-panel" aria-labelledby="source-heading">
-        <div class="section-head"><h2 id="source-heading"><span class="section-number">01</span> 输入源</h2><span class="mini-label">SOURCE</span></div>
+        <div class="section-head"><h2 id="source-heading"><span class="section-number">01</span> 输入源</h2><span class="mini-label">开始创作</span></div>
         <div class="tabbar" role="tablist" aria-label="音频输入方式"><button id="file-tab" class="tab active" role="tab" aria-selected="true" aria-controls="file-source">音频文件</button><button id="mic-tab" class="tab" role="tab" aria-selected="false" aria-controls="mic-source">实时麦克风</button></div>
-        <div id="file-source" role="tabpanel" aria-labelledby="file-tab">
-          <label class="drop-zone" id="drop-zone" for="file-input"><span class="upload-symbol">↥</span><strong>拖入你的音频</strong><span>或点击选择文件</span><small>WAV / MP3 / M4A / OGG* · ≤ 50 MB</small><input type="file" id="file-input" accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac" hidden></label>
+        <div id="file-source" class="file-workspace" role="tabpanel" aria-labelledby="file-tab">
+          <div class="import-area">
+          <label class="drop-zone" id="drop-zone" for="file-input"><span class="upload-symbol" aria-hidden="true"><svg viewBox="0 0 32 32" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16 21V6m-6 6 6-6 6 6M7 20v6h18v-6"/></svg></span><strong>拖入音频文件</strong><span>或 <em>浏览文件</em></span><small>WAV / MP3 / M4A / OGG</small><input type="file" id="file-input" accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac" hidden></label>
           <button id="demo" class="text-button">没有文件？试试测试信号 <span>↗</span></button>
+          <p class="help import-help">最大 50 MB · 最长 10 分钟<br>格式支持取决于浏览器。</p></div>
+          <div class="preview-area">
+          <div class="preview-heading"><span>波形预览</span><span class="mono">AUDIO TRACK</span></div>
           <div id="file-info" class="file-info" hidden><div><strong id="file-name"></strong><small id="file-details"></small></div><span class="file-type">AUDIO</span></div>
           <div class="wave-window"><canvas id="waveform" aria-label="音频波形预览"></canvas><div id="wave-empty">等待输入信号</div><div id="playhead"></div></div>
           <div class="transport"><button id="play" class="primary" disabled><span>▶</span> 试听</button><button id="stop" class="icon-button" aria-label="停止试听" disabled>■</button><span id="timecode" class="mono">00:00 <i>/ 00:00</i></span></div>
           <label class="toggle-row"><span>循环试听<small>调节时连续对比音色</small></span><input id="loop" type="checkbox" role="switch"><span class="switch"></span></label>
-          <p class="help">* 格式支持取决于浏览器。最长 10 分钟；长文件导出需要更多时间。</p>
+          </div>
         </div>
         <div id="mic-source" role="tabpanel" aria-labelledby="mic-tab" hidden>
           <div class="mic-visual"><span>◉</span><strong id="mic-status">麦克风尚未开启</strong><small>只在你主动开启后请求权限</small></div>
           <div class="warning">请先戴好耳机。监听可能产生啸叫，建议从低音量开始。</div>
           <button id="start-mic" class="primary full">开启麦克风</button><button id="stop-mic" class="secondary full" disabled>停止并释放麦克风</button>
           <label class="toggle-row"><span>耳机监听<small>关闭时听不到语音和开关台声</small></span><input id="monitor" type="checkbox" role="switch"><span class="switch"></span></label>
-          <button id="ptt" class="ptt" disabled>按住通话 <span>PTT</span></button><p class="help">按住按钮或空格键发射；松开发射结束。离开页面会自动释放麦克风。</p>
+          <button id="ptt" class="ptt" disabled>按住通话 <span>PTT</span></button><p class="help">按住按钮或空格键发射，松开结束。窗口失焦会停止发射；切到后台或关闭页面会释放麦克风。</p>
           <label class="toggle-row"><span>声控发射 VOX<small>用音量触发，250ms 保持，词间不会重复提示</small></span><input id="vox" type="checkbox" role="switch"><span class="switch"></span></label>
           <div class="compact-control"><label for="voxThreshold">声控阈值</label><output id="voxThreshold-value">−42 dB</output><input id="voxThreshold" type="range" min="-65" max="-15" value="-42" step="1"></div>
         </div>
-        <div class="privacy-note"><span>⌁</span> 音频仅在当前设备内存中处理</div>
+        <div class="privacy-note"><span aria-hidden="true">↳</span> 从一段人声开始，效果会更明显。没有音频也可以使用测试信号。</div>
       </section>
       <section class="center-column">
         <div class="receiver panel">
-          <div class="receiver-top"><span class="device-label">RL–01 <i>FIELD RECEIVER</i></span><span class="screw">⊕</span></div>
+          <div class="receiver-top"><span class="device-label">信号监视器</span><span class="mini-label">LIVE SIGNAL</span></div>
           <div class="screen"><div class="screen-top"><span id="screen-mode">FILE / STANDBY</span><span class="screen-right"><span id="carrier-dot">●</span> <span id="carrier-text">待机</span></span></div><div class="frequency"><span id="screen-preset">巡逻频道</span><span class="channel-number">CH <b id="channel">01</b></span></div><div class="lcd-rule"></div><div class="signal-row"><span>RF QUALITY</span><div id="signal-bars" class="signal-bars" aria-label="模拟信号强度"></div><strong id="quality-screen">90%</strong></div><div class="screen-bottom"><span id="band-screen">300 — 3000 Hz</span><span id="radio-screen">ANALOG VOICE</span></div></div>
           <div class="meter-row"><span>IN</span><div class="meter-track"><div id="in-meter"></div></div><span id="in-db">−∞</span></div><div class="meter-row"><span>OUT</span><div class="meter-track"><div id="out-meter"></div></div><span id="out-db">−∞</span></div>
-          <div class="receiver-bottom"><span class="speaker-grille"></span><span class="receiver-caption">窄带语音 · 模拟电台质感</span><span class="screw">⊕</span></div>
+          <div class="receiver-bottom"><span class="receiver-caption">窄带语音 / 模拟电台质感</span><span class="monitor-unit">dBFS</span></div>
         </div>
-        <section class="panel presets-panel" aria-labelledby="preset-heading"><div class="section-head"><h2 id="preset-heading"><span class="section-number">02</span> 选择频道</h2><span class="mini-label">PRESETS</span></div><div id="presets" class="preset-grid"></div><p id="preset-description" class="preset-description"></p></section>
-        <section class="panel output-panel" aria-labelledby="output-heading"><div class="section-head"><h2 id="output-heading"><span class="section-number">03</span> 对比与输出</h2><span class="mini-label">OUTPUT</span></div><div class="ab-controls"><div><strong>A / B 试听</strong><small>随时切换原声与电台音色</small></div><div class="segmented" role="group" aria-label="试听原声或效果"><button id="dry" aria-pressed="false">A 原声</button><button id="wet" class="selected" aria-pressed="true">B 电台</button></div></div><div class="comparison-tools"><button id="match-prepare" class="text-button">准备电平匹配 A/B（近似）</button><button id="match-off" class="text-button" hidden>取消 / 关闭匹配</button><p id="match-status" class="help" role="status">默认关闭；仅文件试听。</p><p class="help">固定 RMS 近似匹配，仅衰减；A 对齐 B 的语音延迟。非感知响度认证，不改变麦克风与导出。修改参数后需重新准备；匹配试听含 350ms 收尾，实时电平表停用。</p></div><div class="compact-control"><label for="output">输出音量</label><output id="output-value">80%</output><input id="output" type="range" min="0" max="100" step="1" value="80"></div><button id="export" class="export-button" disabled><span>↓</span> 导出电台音效 <span class="format-tag">WAV / 16-BIT</span></button><button id="cancel-export" class="text-button" hidden>取消导出</button><p class="help">导出完整文件，始终使用电台效果与当前音量。单声道 PCM，含 350ms 收尾。</p></section>
+        <section class="panel presets-panel" aria-labelledby="preset-heading"><div class="section-head"><h2 id="preset-heading"><span class="section-number">02</span> 选择音色</h2><span class="mini-label">6 个频道预设</span></div><div id="presets" class="preset-grid"></div><p id="preset-description" class="preset-description"></p></section>
+        <section class="panel output-panel" aria-labelledby="output-heading"><div class="section-head"><h2 id="output-heading"><span class="section-number">03</span> 对比与输出</h2><span class="mini-label">OUTPUT</span></div><div class="ab-controls"><div><strong>A / B 试听</strong><small>随时切换原声与电台音色</small></div><div class="segmented" role="group" aria-label="试听原声或效果"><button id="dry" aria-pressed="false">A 原声</button><button id="wet" class="selected" aria-pressed="true">B 电台</button></div></div><details class="comparison-tools"><summary>电平匹配 <span>进阶 A/B 对比</span></summary><button id="match-prepare" class="text-button">准备近似电平匹配</button><button id="match-off" class="text-button" hidden>取消 / 关闭匹配</button><p id="match-status" class="help" role="status">默认关闭；仅文件试听。</p><p class="help">固定 RMS 近似匹配，仅衰减；A 对齐 B 的语音延迟。非感知响度认证，不改变麦克风与导出。修改参数后需重新准备；匹配试听含 350ms 收尾，实时电平表停用。</p></details><div class="compact-control"><label for="output">输出音量</label><output id="output-value">80%</output><input id="output" type="range" min="0" max="100" step="1" value="80"></div><button id="export" class="export-button" disabled><span>↓</span> 导出 WAV <span class="format-tag">MONO / 16-BIT</span></button><button id="cancel-export" class="text-button" hidden>取消导出</button><p class="help">导出完整文件，始终使用电台效果与当前音量。单声道 PCM，含 350ms 收尾。</p></section>
       </section>
-      <section class="panel controls-panel" aria-labelledby="tune-heading"><div class="section-head"><h2 id="tune-heading">精细调音</h2><button id="reset" class="reset-button">重置</button></div><p class="controls-intro">音色可实时调整；视角 / 风格 / 许可音于下次发射或重播生效。</p><div class="cue-controls"><div class="group-label">通话行为 / PTT CUES</div>
+      <details class="panel controls-panel"><summary class="advanced-summary"><span><strong id="tune-heading">精细调音</strong><small>音色、信道与通话行为</small></span><span class="expand-label"><span class="when-closed">展开参数</span><span class="when-open">收起参数</span></span></summary><div class="advanced-body"><div class="section-head"><h2>参数设置</h2><button id="reset" class="reset-button">恢复当前预设</button></div><p class="controls-intro">音色可实时调整；视角 / 风格 / 许可音于下次发射或重播生效。</p><div class="tuning-layout"><div class="cue-controls"><div class="group-label">通话行为 / PTT CUES</div>
 <label for="perspective">监听视角</label><select id="perspective"><option value="receiver">远端接收 · 开台 / 静噪尾音</option><option value="operator">本机操作员 · 许可音 / 侧音</option></select>
 <label for="radio">信道风格</label><select id="radio"><option value="analog">模拟窄带</option><option value="digital">数字风格近似（非 P25）</option></select>
 <label for="permit">本机许可音</label><select id="permit"><option value="triple">三段短音（合成近似）</option><option value="single">单段短音（合成近似）</option><option value="off">关闭</option></select>
 <div class="compact-control"><label for="cueLevel">开关台 / 许可音量</label><output id="cueLevel-value"></output><input id="cueLevel" type="range" min="0" max="100" step="1"></div>
-<div class="compact-control"><label for="tailMs">模拟静噪尾音</label><output id="tailMs-value"></output><input id="tailMs" type="range" min="0" max="200" step="5"></div><p id="cue-help" class="help"></p></div><div id="parameter-controls"></div><div class="chain"><span>SIGNAL CHAIN</span><p>带通 → 压缩 → 预加重 → 软限幅<br>信道退化 → 去加重 → 静噪 → 喇叭</p></div></section>
+<div class="compact-control"><label for="tailMs">模拟静噪尾音</label><output id="tailMs-value"></output><input id="tailMs" type="range" min="0" max="200" step="5"></div><p id="cue-help" class="help"></p></div><div id="parameter-controls"></div></div><div class="chain"><span>SIGNAL CHAIN</span><p>带通 → 压缩 → 预加重 → 软限幅<br>信道退化 → 去加重 → 静噪 → 喇叭</p></div></div></details>
     </div>
     <div id="status" role="status" aria-live="polite" class="status"><span class="status-dot"></span><span id="status-text">引擎就绪。载入音频，或开启麦克风。</span></div>
   </main>
-  <footer><span>RADIO LAB <span class="footer-slash">/</span> 为声音实验而造</span><span>艺术化无线电效果，非真实设备或 P25 / DMR 编解码器仿真。</span></footer>
+  <footer><span>RADIO LAB <span class="footer-slash">/</span> 音频工具</span><span>艺术化无线电音效 · 非真实设备或 P25 / DMR 仿真</span></footer>
 </div>
 </body>
 </html>

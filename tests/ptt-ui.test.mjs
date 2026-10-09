@@ -32,6 +32,6 @@ test('changing preset or VOX while keyed releases PTT and enabling VOX never ena
 });
 test('space on interactive controls is not global PTT; hiding page closes microphone',async()=>{
  const {get,document,messages}=await harness();
- for(const tagName of ['INPUT','TEXTAREA','BUTTON','SELECT','A']){document.fire('keydown',{code:'Space',repeat:false,target:{tagName}});assert.ok(!messages.at(-1)?.params.tx);}
+ for(const tagName of ['INPUT','TEXTAREA','BUTTON','SELECT','A','SUMMARY']){document.fire('keydown',{code:'Space',repeat:false,target:{tagName}});assert.ok(!messages.at(-1)?.params.tx);}
  get('ptt').fire('pointerdown',{button:0,pointerId:1});document.hidden=true;document.fire('visibilitychange');assert.equal(get('ptt').disabled,true);assert.equal(get('monitor').checked,false);
 });
