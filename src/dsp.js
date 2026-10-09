@@ -100,6 +100,9 @@ export class BurstFrameChannel {
 export class RadioKernel {
   constructor(sampleRate = 48000, params = {}, seed = 0x72616469) {
     if (!Number.isFinite(sampleRate) || sampleRate < 8000 || sampleRate > 192000) throw new RangeError('Unsupported sample rate');
+    this.cueSeed = ((seed >>> 0) ^ 0x51c0a7e3) >>> 0 || 1;
+    this.openCue = { duration: .024, gain: .38, power: 2 };
+    this.tailCue = { attack: .003, gain: .48, power: 1.5 };
     this.rate = sampleRate; this.target = sanitizeParams(params); this.p = { ...this.target }; this.seed = seed >>> 0 || 1;
     this.hp2 = new Biquad(); this.lp2 = new Biquad(); this.presence = new Biquad(); this.hp = new Biquad(); this.lp = new Biquad(); this.noiseHP = new Biquad(); this.noiseLP = new Biquad(); this.color = new Biquad();
     this.noiseScale = Math.sqrt(sampleRate/48000);
@@ -116,6 +119,24 @@ export class RadioKernel {
     this.configure();
   }
   random() { let x = this.seed; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; this.seed = x >>> 0; return this.seed / 4294967296; }
+  // Event draws are independent of per-sample noise/RF and audio block sizes.
+  cueRandom() { let x = this.cueSeed; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; this.cueSeed = x >>> 0; return this.cueSeed / 4294967296; }
+  startReceiverCue() {
+    const weak = 1-clamp(this.signal/100,0,1);
+    // Never exceed the fixed 24 ms voice buffer: variation cannot clip a syllable.
+    this.openCue.duration = .0225 - .0015*weak + this.cueRandom()*(.0005+.002*weak);
+    this.openCue.gain = .38 + .10*weak + (this.cueRandom()-.5)*(.04+.06*weak);
+    this.openCue.power = 2.2 - .5*weak + (this.cueRandom()-.5)*.3;
+  }
+  endReceiverCue(tailMs) {
+    const weak = 1-clamp(this.signal/100,0,1);
+    // tailMs remains a hard upper bound; zero means no receiver tail.
+    const duration = tailMs/1000*(1-this.cueRandom()*(.01+.04*weak));
+    this.tailCue.attack = .002 + this.cueRandom()*(.001+.002*weak);
+    this.tailCue.gain = .46 + .13*weak + (this.cueRandom()-.5)*(.05+.07*weak);
+    this.tailCue.power = 1.75 - .4*weak + (this.cueRandom()-.5)*.3;
+    return Math.round(this.rate*duration);
+  }
   setParams(p) { this.target = sanitizeParams(p, this.target); }
   configure() { this.hp.configure('high', this.p.highpass, this.rate); this.lp.configure('low', this.p.lowpass, this.rate); this.color.configure('peak', 1450, this.rate, this.p.speaker, 1.1); this.presence.configure('peak', 2350, this.rate, this.p.speaker*.45, 1.4); this.hp2.configure('high', this.p.highpass*.82, this.rate); this.lp2.configure('low', this.p.lowpass, this.rate); }
   processSample(input) {
@@ -136,6 +157,7 @@ export class RadioKernel {
       const pendingVoice = this.releaseAge >= 0 && this.releaseAge < this.delaySamples;
       this.txAge = 0; this.releaseAge = -1; this.burstCount++;
       this.burstPerspective = t.perspective; this.burstRadio = t.radio; this.burstPermit = t.permit;
+      if (this.burstPerspective === 'receiver' && this.burstRadio === 'analog') this.startReceiverCue();
       // Fast re-key keeps queued speech and its current delay rather than clearing a syllable.
       if (!pendingVoice) {
         this.delaySamples = Math.round(this.rate * (t.perspective === 'operator' && t.permit !== 'off' ? .09 : .024));
@@ -144,7 +166,7 @@ export class RadioKernel {
     }
     if (this.wasTransmit && !transmit) {
       this.releaseAge = 0; this.endCount++;
-      this.releaseLength = Math.round(this.rate * (this.burstRadio === 'analog' && this.burstPerspective === 'receiver' ? t.tailMs/1000 : this.burstPerspective === 'operator' ? .012 : 0));
+      this.releaseLength = this.burstRadio === 'analog' && this.burstPerspective === 'receiver' ? this.endReceiverCue(t.tailMs) : Math.round(this.rate*(this.burstPerspective === 'operator' ? .012 : 0));
     }
     this.wasTransmit = transmit;
     const draining = !transmit && this.releaseAge >= 0 && this.releaseAge < this.delaySamples;
@@ -183,16 +205,17 @@ export class RadioKernel {
           const envelope = Math.min(1, local/.002, (pulseDuration-local)/.003);
           cue = .22 * envelope * Math.sin(2*Math.PI*(this.burstPermit === 'single' ? 960 : PERMIT_FREQUENCIES[slot])*age);
         }
-      } else if (this.burstPerspective === 'receiver' && age < .024) {
-        const envelope = Math.sin(Math.PI*age/.024)**2;
-        cue = this.burstRadio === 'analog' ? noise*.38*envelope : Math.sin(2*Math.PI*620*age)*.09*Math.exp(-age*250)*Math.min(1,age/.001);
+      } else if (this.burstPerspective === 'receiver' && this.burstRadio === 'analog' && age < this.openCue.duration) {
+        const envelope = Math.sin(Math.PI*age/this.openCue.duration)**this.openCue.power;
+        cue = noise*this.openCue.gain*envelope;
+        // Digital receiver opening is clean, not an invented courtesy/permit beep.
       }
     }
     const endSample = this.releaseAge-this.delaySamples;
     if (!transmit && endSample >= 0 && endSample < this.releaseLength) {
       const seconds = endSample/this.rate, duration = this.releaseLength/this.rate;
-      const envelope = Math.min(1, seconds/.003) * (1-seconds/duration)**1.5;
-      cue += this.burstPerspective === 'receiver' && this.burstRadio === 'analog' ? noise*.48*envelope : noise*.14*Math.exp(-seconds*350)*Math.min(1,seconds/.001);
+      const envelope = Math.min(1, seconds/this.tailCue.attack) * (1-seconds/duration)**this.tailCue.power;
+      cue += this.burstPerspective === 'receiver' && this.burstRadio === 'analog' ? noise*this.tailCue.gain*envelope : noise*.14*Math.exp(-seconds*350)*Math.min(1,seconds/.001);
     }
     if (transmit) this.txAge++;
     if (this.releaseAge >= 0) this.releaseAge++;

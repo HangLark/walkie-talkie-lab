@@ -1,13 +1,13 @@
-import { renderRadio, sanitizeParams } from './dsp.js';
+import { renderRadio, sanitizeParams } from './dsp.js?v=cue-variation-v1';
 
 /** Fixed, shared-mask RMS matching, not perceptual loudness or speech recognition. */
-export function prepareComparison(input, rate, settings) {
+export function prepareComparison(input, rate, settings, seed) {
   const p = sanitizeParams(settings);
   if (input.length < rate*.5) throw Error('至少需要 0.5 秒音频。');
   let peak = 0;
   for (const x of input) { if (!Number.isFinite(x) || Math.abs(x)>1) throw Error('源音频含无效或超满幅采样，请先检查输入。'); peak=Math.max(peak,Math.abs(x)); }
   if (peak<.0001 || !p.output) throw Error('音频太安静或输出音量为零，无法可靠匹配。');
-  const wet=renderRadio(input,rate,{...p,mix:1,tx:true,vox:false,gateDry:false});
+  const wet=renderRadio(input,rate,{...p,mix:1,tx:true,vox:false,gateDry:false},seed);
   const dry=new Float32Array(wet.length);
   const delay=Math.round(rate*(p.perspective==='operator'&&p.permit!=='off'?.09:.024));
   for(let i=0;i<input.length;i++) dry[i+delay]=input[i]*p.output/100;
