@@ -25,6 +25,12 @@ Opening `index.html` directly with `file://` is unsupported. AudioWorklet and mi
 
 Input is limited to 50 MB and ten minutes. Decoded audio can use much more memory than compressed input; very long/multichannel files may be expensive on mobile devices. Unsupported and corrupt files produce a recoverable error without discarding the last valid input. Mono downmix is a channel average; oppositely phased stereo material may cancel.
 
+### Optional level-matched file comparison
+
+Choose **准备电平匹配 A/B（近似）** to prepare fixed-gain dry/wet snapshots. This is approximate shared-mask RMS matching, not a perceptual loudness standard: the louder path is attenuated, dry voice receives the same nominal 24/90 ms delay as wet voice, and both snapshots retain the 350 ms tail. Press play after preparation; A/B preserves the timeline offset with short fades. Live meters are cleared on this separate audition path.
+
+Preparation is cancellable and never starts playback automatically. Changing the source or processing/output controls invalidates the snapshot. Microphones and WAV export do not use matching attenuation. Silent, very short, nonfinite or over-full-scale sources are rejected for matching. Ordinary playback remains available. See [reference analysis and limitations](REFERENCE_CALIBRATION.md) for the two recording sources and why their speech spectra were not treated as measured radio hardware responses.
+
 ### Microphone
 
 - Explicitly choose the microphone tab and start the microphone. Permission is never requested on page load.

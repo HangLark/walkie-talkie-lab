@@ -78,3 +78,13 @@ Date: 2026-10-08. All development and checks were performed in the assigned clou
 6. PTT using pointer and keyboard; pointer cancellation and focus loss. Enable VOX and test hold. Check both dry and wet audition respect transmission state.
 7. Switch source tab, hide page, and leave page. Confirm microphone tracks and recording indicator stop. Returning must require explicit restart.
 8. Use long files and mobile hardware to evaluate memory usage and realtime performance. Listen for clipping, unexpected clicks, or harsh noise; subjective sound quality has not been certified by automated tests.
+
+
+## 2026-10-09: approximate RMS-matched file A/B
+
+- Restored exact b4f2c43 source via read-only GitHub connector; all 20 original source blobs checked against GitHub SHA-1 before changes.
+- Added file-only fixed snapshot matching, cancellable worker, shared source mask, 24/90 ms nominal alignment and attenuation-only gains. Core radio DSP/presets, microphone path and export worker unchanged.
+- `npm run check`: 42 tests pass, followed by static build. Seven added tests cover RMS match/attenuation, peak bounds, delay/rate behavior, invalid/silent/anti-phase/short input, actual comparison worker, stale/cancelled generation, output changes, exact A/B offset, old-worklet detachment, microphone isolation and rapid toggle/stop races.
+- The app's actual JavaScript UI logic is exercised in a simulated DOM/audio context. This does not verify real browser audio-device output, perceptual loudness, audible switching quality or browser memory behavior.
+- Two dispatch excerpts were measured with FFmpeg and Python locally; recordings are not included in app assets. No hardware transfer function or subjective fidelity claim was derived.
+- Recommended browser check: prepare/cancel repeatedly, change output/source mid-preparation, start matched playback, toggle A/B rapidly, pause/resume/loop, switch to microphone, confirm matched audition does not change export volume; check Chinese labels at mobile width and listen for switching artifacts at low headphone volume.
