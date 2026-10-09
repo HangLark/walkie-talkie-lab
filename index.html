@@ -5,8 +5,8 @@
   <meta name="theme-color" content="#f6f7f9"><meta name="description" content="本地运行的对讲机音效工作台：实时麦克风、文件试听与 WAV 导出。">
   <title>频段 / RADIO LAB · 对讲机音效工作台</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23232933'/%3E%3Cpath d='M16 34h7l4-17 8 32 5-22 4 7h5' fill='none' stroke='%23ffffff' stroke-width='4'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="./src/style.css?v=workflow-v2">
-  <script type="module" src="./src/app.js?v=workflow-v2"></script>
+  <link rel="stylesheet" href="./src/style.css?v=workflow-v3">
+  <script type="module" src="./src/app.js?v=workflow-v3"></script>
 </head>
 <body>
 <div class="app-shell">
@@ -15,9 +15,10 @@
     <section class="title-row"><div><div class="eyebrow">音频工具 / RADIO EFFECTS</div><h1>对讲机音效工作台<span class="title-mark">01</span></h1><p>载入声音，选择音色，找到你想要的无线电质感。</p></div><div class="local-badge"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 3 4 6v6c0 4 8 9 8 9s8-5 8-9V6z"/><path d="m8 12 3 3 5-6"/></svg><div>声音只留在这里<small>无需上传，也无需账号</small></div></div></section>
     <section class="audition-bar" aria-label="持续试听控制">
       <div class="audition-heading"><strong id="current-source">文件试听 · 尚未载入</strong><span id="audition-state">载入文件后开始</span></div>
-      <div class="audition-main"><button id="mic-quick-stop" class="secondary" hidden disabled>关闭麦克风</button><div id="file-transport" class="transport"><button id="play" class="primary" disabled><span>▶</span> 试听</button><button id="stop" class="icon-button" aria-label="停止试听" disabled>■</button><span id="timecode" class="mono">00:00 <i>/ 00:00</i></span><label class="loop-inline"><input id="loop" type="checkbox"> 循环</label></div>
+      <div class="audition-main"><div id="mic-transport" class="mic-transport" hidden><button id="ptt" class="ptt" disabled>按住通话 <span>PTT</span></button><button id="mic-quick-stop" class="secondary" disabled>关闭麦克风</button></div><div id="file-transport" class="transport"><button id="play" class="primary" disabled><span>▶</span> 试听</button><button id="stop" class="icon-button" aria-label="停止试听" disabled>■</button><span id="timecode" class="mono">00:00 <i>/ 00:00</i></span><label class="loop-inline"><input id="loop" type="checkbox"> 循环</label></div>
       <div class="segmented" role="group" aria-label="试听原声或效果"><button id="dry" aria-pressed="false">A 原声</button><button id="wet" class="selected" aria-pressed="true">B 电台</button></div>
       <div class="compact-control listening-control"><label for="listen-volume">试听音量</label><output id="listen-volume-value">80%</output><input id="listen-volume" type="range" min="0" max="100" step="1" value="80"></div></div>
+      <div id="mic-audition-options" class="mic-audition-options" hidden><label class="toggle-row"><span>耳机监听<small>请戴耳机 · 默认关闭</small></span><input id="monitor" type="checkbox" role="switch"><span class="switch"></span></label><label class="toggle-row"><span>声控发射 VOX<small>关闭时按住 PTT 通话</small></span><input id="vox" type="checkbox" role="switch"><span class="switch"></span></label></div>
       <div id="file-audition"><input id="seek" type="range" min="0" max="1000" step="1" value="0" aria-label="试听进度" disabled>
       <div class="match-row"><button id="match-prepare" class="text-button" disabled>开启电平匹配</button><button id="match-off" class="text-button" hidden>关闭匹配</button><span id="match-status" role="status">匹配关闭 · 原始电平</span><details class="comparison-tools"><summary aria-label="电平匹配说明">说明</summary><p class="help">固定 RMS 近似匹配，仅衰减；A 对齐 B 的语音延迟。非感知响度认证，不改变麦克风与导出。调整后自动更新，保留试听位置；匹配含 350ms 收尾，实时电平表停用。</p></details></div></div>
     </section>
@@ -40,10 +41,10 @@
           <div class="mic-visual"><span>◉</span><strong id="mic-status">麦克风尚未开启</strong><small>只在你主动开启后请求权限</small></div>
           <div class="warning">请先戴好耳机。监听可能产生啸叫，建议从低音量开始。</div>
           <button id="start-mic" class="primary full">开启麦克风</button><button id="stop-mic" class="secondary full" disabled>停止并释放麦克风</button>
-          <label class="toggle-row"><span>耳机监听<small>关闭时听不到语音和开关台声</small></span><input id="monitor" type="checkbox" role="switch"><span class="switch"></span></label>
-          <button id="ptt" class="ptt" disabled>按住通话 <span>PTT</span></button><p class="help">按住按钮或空格键发射，松开结束。窗口失焦会停止发射；切到后台或关闭页面会释放麦克风。</p>
-          <label class="toggle-row"><span>声控发射 VOX<small>用音量触发，250ms 保持，词间不会重复提示</small></span><input id="vox" type="checkbox" role="switch"><span class="switch"></span></label>
-          <div class="compact-control"><label for="voxThreshold">声控阈值</label><output id="voxThreshold-value">−42 dB</output><input id="voxThreshold" type="range" min="-65" max="-15" value="-42" step="1"></div>
+          
+          <p class="help">按住按钮或空格键发射，松开结束。窗口失焦会停止发射；切到后台或关闭页面会释放麦克风。</p>
+          
+          <div id="vox-threshold-control" class="compact-control" hidden><label for="voxThreshold">声控阈值</label><output id="voxThreshold-value">−42 dB</output><input id="voxThreshold" type="range" min="-65" max="-15" value="-42" step="1"></div>
         </div>
         <div class="privacy-note">建议使用人声试听 · 音频仅在本地处理</div>
       </section>

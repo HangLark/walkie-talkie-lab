@@ -76,3 +76,10 @@ test('mobile unwraps the sidebar and retains source, monitor, presets, output, a
   assert.match(html,/调整后自动更新，保留试听位置/);
   assert.ok(html.indexOf('id="common-controls"')<html.indexOf('class="advanced-controls"'));
  });
+
+ test('microphone safety controls stay in the sticky audition bar and focus clears it',()=>{
+  const bar=html.slice(html.indexOf('class="audition-bar"'),html.indexOf('class="workbench"'));
+  for(const id of ['ptt','monitor','vox','mic-quick-stop'])assert.ok(bar.includes(`id="${id}"`),id);
+  assert.match(css,/scroll-padding-top:calc\(var\(--audition-height\) \+ 16px\)/);
+  assert.match(html,/id="vox-threshold-control"[^>]*hidden/);
+ });
