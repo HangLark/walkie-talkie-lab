@@ -1,0 +1,105 @@
+{
+  "description": "Generated from published monitor/RXHP baseline b9a10ad before any moving-fading integration. Deterministic 701+2311Hz .08s source, seed918273, DEFAULTS with quality, fmMonitor:true,tailMs55. SHA256 of Float32 render bytes incl .35s release.",
+  "cases": [
+    {
+      "rate": 8000,
+      "quality": 100,
+      "sha256": "bbefd983772498dbc9e2b2c66815b196c39a97b61a7a8888a990679c1582a6bd"
+    },
+    {
+      "rate": 8000,
+      "quality": 90,
+      "sha256": "26d665efc6fd7c6bf91f77bf911389ee290ba64ca132ef9d2b494d488d4483a0"
+    },
+    {
+      "rate": 8000,
+      "quality": 35,
+      "sha256": "e4777c5c71d36f1d4bba3f4ab8859c1ce0cf839b27155f40495464ed69e59bf3"
+    },
+    {
+      "rate": 8000,
+      "quality": 20,
+      "sha256": "2af48e4a57df2da57cc207ff8a8fdffe447439997a2bb41adb5a2abcb616a512"
+    },
+    {
+      "rate": 44100,
+      "quality": 100,
+      "sha256": "6dd0d27dbacf5d1a0d9813a84419457429b2ca1722eb645e037cb574aa4c3685"
+    },
+    {
+      "rate": 44100,
+      "quality": 90,
+      "sha256": "0e1dfb9404a1fe5717f1358615b67ac4d974c7e6c065bbedd9f4511e4fc96b74"
+    },
+    {
+      "rate": 44100,
+      "quality": 35,
+      "sha256": "69b1fc99f64411ac8f90660360c6bbdab4e268a21130e3f33bb9e1b0669f1602"
+    },
+    {
+      "rate": 44100,
+      "quality": 20,
+      "sha256": "fe277024dd4843a7bc3b99b2ad1cd309f09814a0710398a38f1dd2d32542d416"
+    },
+    {
+      "rate": 48000,
+      "quality": 100,
+      "sha256": "628095182790325b69414cf822b7825d3ef488b302dd2986b492a67c10ff3919"
+    },
+    {
+      "rate": 48000,
+      "quality": 90,
+      "sha256": "7e1e15ac4fffc4813f09d2941e3d0aaed3ee25e3986d6282c82cad82f6890684"
+    },
+    {
+      "rate": 48000,
+      "quality": 35,
+      "sha256": "29608ad42bcd7e965b7a51f105338ce4e1fb5a584129d0407c4e12c87bb239c9"
+    },
+    {
+      "rate": 48000,
+      "quality": 20,
+      "sha256": "cacace119e3ba72c61a3090be00553a472bac17cb380f12a449c45d625f3a1e8"
+    },
+    {
+      "rate": 96000,
+      "quality": 100,
+      "sha256": "a53fee0cc0e1c62dbfdae389db16e2e80251af63901b0a7211c6f37da04ab11e"
+    },
+    {
+      "rate": 96000,
+      "quality": 90,
+      "sha256": "1a7e7d9f88585c3570e6d87b2aa586f11bb37e348569dba9c53a68df023a7257"
+    },
+    {
+      "rate": 96000,
+      "quality": 35,
+      "sha256": "c7f93da23a873e1d0ea1c901b39458861e279a235c75128fa3c46057b8769d75"
+    },
+    {
+      "rate": 96000,
+      "quality": 20,
+      "sha256": "599b9d9b3af40927d0e2b04aadea93b4f1c8491d72abd995a3b8eafaf64fc7f2"
+    },
+    {
+      "rate": 192000,
+      "quality": 100,
+      "sha256": "f88cef211d060f95f3fa8f44951713bbca176a274bf30fb080a430840235f4c7"
+    },
+    {
+      "rate": 192000,
+      "quality": 90,
+      "sha256": "f4cca7fd382fc41de16f2e63ab5bb0c2e74c1e8e6f55a5938810e0ace2e97785"
+    },
+    {
+      "rate": 192000,
+      "quality": 35,
+      "sha256": "e1341b93ff50e4867c4810baa756eb6967770ccdc87126cb626efbd2565b2dfc"
+    },
+    {
+      "rate": 192000,
+      "quality": 20,
+      "sha256": "6bb7c417e05e8a56887233334bd81ab2460770addb7be6141abc1b3d0d7157c5"
+    }
+  ]
+}

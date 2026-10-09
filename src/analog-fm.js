@@ -1,3 +1,4 @@
+import { FlatFading } from './rf-fading.js?v=fm-fading-v1';
 /** Narrowband FM complex-baseband link. No RF hardware, device or codec emulation.
  * See ANALOG_FM_MODEL.md for units, noise reference, approximations and sources. */
 const TAU = 2 * Math.PI;
@@ -24,11 +25,14 @@ function lowpassFIR(length, cutoff, shift = 0) {
  * 100 means a mathematical noiseless link. Intermediate values are CNR dB. */
 export function qualityToCnrDb(quality) { return quality >= 99.999 ? Infinity : -8 + 48*clamp(Number.isFinite(quality)?quality:0,0,100)/100; }
 export class AnalogFM {
-  constructor(sampleRate = 48000, {cnrDb = Infinity, seed = 0x464d7266} = {}) {
+  constructor(sampleRate = 48000, {cnrDb = Infinity, seed = 0x464d7266, propagation = 'static'} = {}) {
     if(!Number.isFinite(sampleRate)||sampleRate<8000||sampleRate>192000) throw new RangeError('FM audio rate must be 8000–192000 Hz');
     this.sampleRate=sampleRate; this.oversample=Math.ceil(48000/sampleRate); this.basebandRate=sampleRate*this.oversample;
     this.deviationHz=2500; this.channelCutoffHz=6000; this.deemphasisSeconds=.00075;
     const r=this.basebandRate;
+    this.fading=new FlatFading(r,{mode:'rician',maxDopplerHz:2,kFactor:4,sinusoids:32,seed:(seed^0x6d756c74)>>>0});
+    this.propagationMode=propagation==='moving'?'moving':'static';this.propagationMix=this.propagationMode==='moving'?1:0;
+    this.propagationStep=1/(.05*r);this.propagationPower=1;this.instantaneousCnrDb=cnrDb;
     this.txHigh=new Biquad('high',300,r); this.txLow=new Butterworth4('low',3000,r);
     this.rxI=new Butterworth4('low',6000,r); this.rxQ=new Butterworth4('low',6000,r);
     this.audioHigh=new Biquad('high',300,r); this.audioLow=new Butterworth4('low',3000,r); this.detectorHigh=new Butterworth4('high',4500,r);
@@ -57,6 +61,7 @@ export class AnalogFM {
     this.cnrDb=db===Infinity?Infinity:clamp(db,-60,120);
     this.noiseStd=db===Infinity?0:Math.sqrt(10**(-this.cnrDb/10)/(2*this.channelNoiseFraction));
   }
+  setPropagation(mode) { if(mode==='static'||mode==='moving')this.propagationMode=mode; }
   random() { let x=this.seed; x^=x<<13; x^=x>>>17; x^=x<<5; this.seed=x>>>0; return (this.seed+.5)/4294967296; }
   /** One internal complex sample. carrier=false removes carrier before the
    * channel; finite CNR still supplies thermal noise. CNR references carrier=1. */
@@ -68,6 +73,18 @@ export class AnalogFM {
     this.phase+=TAU*this.instantaneousDeviationHz/this.basebandRate;
     if(this.phase>Math.PI)this.phase-=TAU; else if(this.phase< -Math.PI)this.phase+=TAU;
     let i=carrier?Math.cos(this.phase):0, q=carrier?Math.sin(this.phase):0;
+    // Independent complex channel before receiver AWGN. Static bypass leaves
+    // carrier arithmetic and the receiver-noise PRNG exactly unchanged.
+    this.fading.tick();
+    const target=this.propagationMode==='moving'?1:0;
+    if(this.propagationMix<target)this.propagationMix=Math.min(target,this.propagationMix+this.propagationStep);
+    else if(this.propagationMix>target)this.propagationMix=Math.max(target,this.propagationMix-this.propagationStep);
+    if(this.propagationMix>0){
+      const u=this.propagationMix,w=u*u*(3-2*u),hi=1+w*(this.fading.i-1),hq=w*this.fading.q;
+      const previous=i;i=i*hi-q*hq;q=previous*hq+q*hi;
+      this.propagationPower=hi*hi+hq*hq;
+    }else this.propagationPower=1;
+    this.instantaneousCnrDb=this.propagationMix===0||this.cnrDb===Infinity?this.cnrDb:this.cnrDb+10*Math.log10(Math.max(this.propagationPower,1e-24));
     if(this.noiseStd) { const radius=this.noiseStd*Math.sqrt(-2*Math.log(this.random())), angle=TAU*this.random(); i+=radius*Math.cos(angle); q+=radius*Math.sin(angle); }
     i=this.rxI.tick(i); q=this.rxQ.tick(q);
     const power=i*i+q*q;

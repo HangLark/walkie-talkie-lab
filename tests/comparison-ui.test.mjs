@@ -66,3 +66,8 @@ test('voice and RF profile changes refresh matched snapshots at the same positio
 test('receiver monitor changes invalidate matched snapshots without autoplay and preserve source seed',async()=>{
  const h=await harness();h.api.prepareMatch();const seed=h.workers.at(-1).sent.seed;h.workers.at(-1).onmessage(readyData());h.get('fm-monitor').checked=true;h.get('fm-monitor').fire('change');for(const f of h.timers.splice(0))f?.();const next=h.workers.at(-1);assert.equal(next.sent.params.fmMonitor,true);assert.equal(next.sent.seed,seed);next.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));assert.equal(h.api.playing,false);
 });
+
+test('propagation changes refresh matched snapshots at retained position with the same seed',async()=>{
+ const h=await harness();h.api.prepareMatch();const seed=h.workers.at(-1).sent.seed;h.workers.at(-1).onmessage(readyData());await h.api.playFile();h.context.currentTime=.37;
+ h.get('fm-propagation').value='moving';h.get('fm-propagation').fire('change');for(const f of h.timers.splice(0))f?.();const next=h.workers.at(-1);assert.equal(next.sent.params.fmPropagation,'moving');assert.equal(next.sent.seed,seed);next.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));assert.equal(h.api.playing,true);assert.equal(h.sources.at(-1).offset,.37);
+});

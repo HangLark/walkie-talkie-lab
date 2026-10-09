@@ -175,3 +175,20 @@ test('QA: receiver-monitor toggle during held PTT preserves transmission and kee
 test('QA: live C/N label uses the same noiseless threshold as the FM model',async()=>{
  const h=await harness();assert.equal(h.api.cnrLabel(99.999),'无噪声');assert.equal(h.api.cnrLabel(99.998),'40.0 dB');assert.equal(h.api.cnrLabel(35),'8.8 dB');
 });
+
+test('QA: propagation is opt-in, retains source/channel/monitor and is disabled outside analog reception',async()=>{
+ const h=await harness();h.api.updateControls();assert.equal(h.get('fm-propagation').value,'static');const seed=h.api.fileSeed;h.api.applyRF('varying');h.get('fm-monitor').checked=true;h.get('fm-monitor').fire('change');
+ h.get('fm-propagation').value='moving';h.get('fm-propagation').fire('change');assert.equal(h.api.params.fmPropagation,'moving');assert.equal(h.api.params.fmMonitor,true);assert.equal(h.api.params.quality,35);assert.equal(h.api.fileSeed,seed);assert.equal(h.api.playing,false);assert.equal(h.get('monitor').checked,false);assert.match(h.get('quality-label').textContent,/平均/);assert.match(h.get('propagation-help').textContent,/重启该段信道状态/);
+ await h.api.playFile();h.api.meter({input:.1,output:.1,signal:35,transmitting:true,fmRxOpen:true,fmMonitorActive:true,fmInstantCnrDb:4.3});assert.equal(h.get('rf-meter-label').textContent,'LIVE C/N');assert.equal(h.get('quality-screen').textContent,'4.3 dB');assert.equal(h.get('channel-state').textContent,'瞬时模型 C/N：4.3 dB');
+ h.get('fm-propagation').value='static';h.get('fm-propagation').fire('change');assert.equal(h.api.params.fmPropagation,'static');assert.equal(h.api.params.fmMonitor,true);assert.equal(h.get('channel-state').hidden,true);
+ h.api.params.radio='digital';h.api.updateControls();assert.equal(h.get('fm-propagation').disabled,true);h.get('fm-propagation').value='moving';h.get('fm-propagation').fire('change');assert.equal(h.api.params.fmPropagation,'static');assert.match(h.get('propagation-help').textContent,/绕过此设置/);
+});
+
+test('QA: moving main signal bars follow instantaneous telemetry while mean slider stays fixed',async()=>{
+ const h=await harness();h.api.params.fmPropagation='moving';h.api.params.quality=35;h.api.updateControls();assert.equal(h.get('quality-screen').textContent,'—');await h.api.playFile();
+ const report=cnr=>h.api.meter({input:.1,output:.1,signal:35,transmitting:true,fmRxOpen:true,fmInstantCnrDb:cnr});
+ report(-8);assert.equal(h.get('quality-screen').textContent,'-8.0 dB');assert.equal(h.get('signal-bars').children.filter(x=>x.classList.contains('on')).length,0);assert.equal(h.get('quality-value').textContent,'8.8 dB');
+ report(16);assert.equal(h.get('quality-screen').textContent,'16.0 dB');assert.equal(h.get('signal-bars').children.filter(x=>x.classList.contains('on')).length,6);assert.equal(h.api.params.quality,35);assert.equal(h.get('quality-value').textContent,'8.8 dB');
+ report(Infinity);assert.equal(h.get('quality-screen').textContent,'无噪声');assert.equal(h.get('signal-bars').children.filter(x=>x.classList.contains('on')).length,12);
+ h.api.meter({input:0,output:0,signal:35,transmitting:false,fmRxOpen:false,fmInstantCnrDb:16});assert.equal(h.get('quality-screen').textContent,'—');assert.equal(h.get('signal-bars').children.filter(x=>x.classList.contains('on')).length,0);
+});

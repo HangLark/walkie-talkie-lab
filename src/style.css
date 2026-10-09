@@ -129,3 +129,5 @@ footer{padding:16px 0 20px}
 #engine-rate{display:block;margin-top:4px;font-size:11px;line-height:1.5}
 
 .receiver-monitor-control{border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin:12px 0 16px}.receiver-monitor-control .toggle-row{margin:0}.receiver-monitor-control .help{margin:8px 0 0}.signal-row #quality-screen{font-size:12px;white-space:nowrap}
+
+.propagation-control{display:flex;align-items:center;gap:12px;margin:12px 0 6px}.propagation-control label{font-size:12px;white-space:nowrap}.propagation-control select{flex:1;min-width:0}.propagation-control select:disabled{opacity:.5}

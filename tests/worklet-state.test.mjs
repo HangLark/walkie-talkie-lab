@@ -11,7 +11,7 @@ async function processorFactory() {
     constructor() { this.messages = []; this.port = { postMessage: m => this.messages.push(m) }; }
   }
   const code = (await readFile(new URL('../src/worklet.js', import.meta.url), 'utf8'))
-    .replace("import { RadioKernel } from './dsp.js?v=fm-monitor-v1';", '');
+    .replace("import { RadioKernel } from './dsp.js?v=fm-fading-v1';", '');
   vm.runInNewContext(code, { AudioWorkletProcessor, RadioKernel, sampleRate: rate,
     registerProcessor: (_name, cls) => { Processor = cls; } });
   return params => new Processor({ processorOptions: { params } });
@@ -98,4 +98,8 @@ test('FM receiver audibility is separate from keyed transmitter activity', async
 test('worklet reports open-squelch independently of automatic carrier detection',async()=>{
  const create=await processorFactory(),p=create({...PRESETS.patrol,quality:30,tx:true,fmMonitor:true});process(p,new Float32Array(24000));assert.equal(latest(p).fmMonitorActive,true);assert.equal(latest(p).fmRxOpen,true);assert.equal(latest(p).carrier,false);
  p.port.onmessage({data:{type:'params',params:{fmMonitor:false}}});process(p,new Float32Array(12000));assert.equal(latest(p).fmMonitorActive,false);assert.equal(latest(p).fmRxOpen,false);
+});
+
+test('worklet reports mean-channel propagation state and physical instantaneous CNR',async()=>{
+ const create=await processorFactory(),p=create({...PRESETS.patrol,quality:35,fmPropagation:'moving',fmMonitor:true});process(p,new Float32Array(12000));const data=latest(p);assert.equal(data.fmPropagation,'moving');assert.ok(data.fmChannelPower>0);assert.ok(Math.abs(data.fmInstantCnrDb-(8.8+10*Math.log10(data.fmChannelPower)))<1e-8);
 });

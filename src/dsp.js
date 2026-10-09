@@ -1,6 +1,6 @@
-import { AnalogFM, qualityToCnrDb } from './analog-fm.js?v=fm-monitor-v1';
+import { AnalogFM, qualityToCnrDb } from './analog-fm.js?v=fm-fading-v1';
 /** Shared, allocation-free per-sample approximate radio audio kernel. Not a hardware/codec emulator. */
-export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 0, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 0, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, fmMonitor: false, vox: false, gateDry: false, voxThreshold: -42, tx: true });
+export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 0, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 0, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, fmMonitor: false, fmPropagation: 'static', vox: false, gateDry: false, voxThreshold: -42, tx: true });
 // Legacy stress-test configurations; not user-facing device models or calibrated presets.
 export const PRESETS = Object.freeze({
   patrol: { name: '巡逻频道', description: '模拟接收端：清晰窄带语音、开台声与可调静噪尾音', ...DEFAULTS },
@@ -32,7 +32,7 @@ export function sanitizeParams(params = {}, base = DEFAULTS) {
   const p = { ...base };
   for (const [key, range] of Object.entries(ranges)) if (Number.isFinite(params[key])) p[key] = clamp(params[key], ...range);
   for (const key of ['vox', 'tx', 'gateDry', 'fmMonitor']) if (typeof params[key] === 'boolean') p[key] = params[key];
-  for (const [key, choices] of Object.entries({ perspective: ['receiver', 'operator'], radio: ['analog', 'digital'], permit: ['off', 'single', 'triple'] })) if (choices.includes(params[key])) p[key] = params[key];
+  for (const [key, choices] of Object.entries({ perspective: ['receiver', 'operator'], radio: ['analog', 'digital'], permit: ['off', 'single', 'triple'], fmPropagation: ['static', 'moving'] })) if (choices.includes(params[key])) p[key] = params[key];
   return p;
 }
 class Biquad {
@@ -119,7 +119,7 @@ export class RadioKernel {
     this.cueSeed = ((seed >>> 0) ^ 0x51c0a7e3) >>> 0 || 1;
     this.openCue = { duration: .024, gain: .38, power: 2 };
     this.tailCue = { attack: .003, gain: .48, power: 1.5 };
-    this.fm = new AnalogFM(sampleRate, { seed: seed ^ 0x464d1234 }); this.fmDrainSamples = Math.ceil(sampleRate*.02); this.fmAcquire = 0; this.fmRxOpen = false; this.fmMonitorActive = false;
+    this.fm = new AnalogFM(sampleRate, { seed: seed ^ 0x464d1234, propagation: params.fmPropagation }); this.fmDrainSamples = Math.ceil(sampleRate*.02); this.fmAcquire = 0; this.fmRxOpen = false; this.fmMonitorActive = false;
     this.rate = sampleRate; this.target = sanitizeParams(params); this.p = { ...this.target }; this.seed = seed >>> 0 || 1;
     this.hp2 = new Biquad(); this.lp2 = new Biquad(); this.presence = new Biquad(); this.hp = new Biquad(); this.lp = new Biquad(); this.noiseHP = new Biquad(); this.noiseLP = new Biquad(); this.color = new Biquad(); this.bodyEQ = new Biquad();
     this.noiseScale = Math.sqrt(sampleRate/48000);
@@ -203,6 +203,7 @@ export class RadioKernel {
       // Source leveling is optional; default zero preserves microphone dynamics.
       x = this.leveler.tick(x, p.leveler);
       this.fm.setCnrDb(qualityToCnrDb(p.quality));
+      this.fm.setPropagation(t.fmPropagation);
       x = this.fm.processSample(x, transmit || draining);
       // Squelch observes high-frequency discriminator noise, never source level.
       const closeHz = 1800 * Math.exp(-p.squelch/33);
