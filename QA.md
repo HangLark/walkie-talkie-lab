@@ -1,3 +1,15 @@
+# File PTT and optional tail gain · 2026-10-10
+
+- Frozen runtime module graph uses `fm-file-ptt-v5`; the independent combined suite passed 229/229 before this cache-only update.
+
+- Ordinary file Play/Pause now drives the same DSP TX state: Pause stops new file input immediately, keeps receiver output enabled for the existing voice/RF/squelch drain, and freezes the source position. The existing bounded 350 ms window ends with its 10 ms safety envelope.
+- Rekey within that window retains one processor and its RF/filter history. Cleanup epochs reject stale timers even when that same session is reused; previous source endings cannot stop its replacement. Partial envelope recovery remains continuous through another Pause or Stop.
+- Loops stay one transmission. Natural EOF releases PTT within the existing capture window. Explicit Stop, seek, source/mode changes and hidden-page cleanup remain short-fade cancellation. Pre-rendered level-matched A/B explicitly remains snapshot playback, without regenerated PTT transitions.
+- Optional `tailGainDb` is labeled “尾噪衰减（额外音量处理）”, defaults to 0 dB, and ranges from −24 to 0 dB. It reaches live preview, matched wet rendering and export without changing detector controls, tail length or the unprocessed source. DSP coverage is in `tests/tail-gain.test.mjs`.
+- Focused UI/real-kernel tests cover pause release, offset retention, uninterrupted-RF rekey, late callbacks, loops, EOF, lifecycle cancellation, partial-fade retoggles, snapshot semantics and parameter propagation. This does not claim microphone hardware, physical headphone or sample-identical realtime/offline validation.
+
+---
+
 # Automatic squelch release freeze · 2026-10-10
 
 - Removed the transmitter-informed 6 ms release shortcut; the existing receiver detector hold and selected tail cap remain in force. No detector, FM or RF-noise coefficients changed.

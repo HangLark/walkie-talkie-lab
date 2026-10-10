@@ -264,13 +264,12 @@ test('file natural end schedules a fixed audio-clock envelope before onended and
  assert.equal(gain.events.filter(e=>e[0]==='ramp').length,1);
 });
 
-test('Stop, pause, hidden page, new file and route changes fade only the retiring file graph',async()=>{
- for(const action of ['stop','pause','hide','replace','route','mode']){
+test('Stop, hidden page, new file and route changes fade only the retiring file graph',async()=>{
+ for(const action of ['stop','hide','replace','route','mode']){
   const h=await harness();await h.api.playFile();h.context.currentTime=2;
   const old=h.processors.at(-1),oldSource=h.sources.at(-1),oldGain=h.gains.at(-1),monitor=h.gains[0];
   const monitorEvents=monitor.gain.events.length;
   if(action==='stop')h.get('stop').fire('click');
-  if(action==='pause')await h.api.playFile();
   if(action==='hide'){h.document.hidden=true;h.document.fire('visibilitychange');}
   if(action==='replace')h.api.setFile(h.buffer(2),'replacement.wav');
   if(action==='route'){h.get('perspective').value='operator';h.get('perspective').fire('change');await tick();}
@@ -366,4 +365,89 @@ test('microphone UI with real kernel keeps bypass quiet outside PTT and its boun
  h.get('monitor').checked=false;h.get('monitor').fire('change');sync();
  assert.equal(p.port.lastMessage.params.receiverActive,false);
  assert.equal(peak(kernel.process(new Float32Array(24000))),0);
+});
+
+
+test('ordinary file pause releases PTT, stops input now and preserves buffered RF output and pause position',async()=>{
+ const h=await harness();h.api.params.fmMonitor=true;await h.api.playFile();const processor=h.processors.at(-1),input=h.sources.at(-1),gain=h.gains.at(-1).gain;
+ const kernel=new RadioKernel(48000,processor.options.processorOptions.params,101);
+ kernel.process(new Float32Array(4800).fill(.1));h.context.currentTime=2;await h.api.playFile();
+ assert.equal(h.api.playing,false);assert.equal(h.api.pausedAt,2);assert.equal(input.stopAt,2);assert.equal(input.disconnected,true);
+ assert.equal(processor.port.lastMessage.params.tx,false);assert.equal(processor.port.lastMessage.params.receiverActive,true);assert.equal(processor.disconnected,undefined);
+ assert.ok(Math.abs(gain.events.at(-1)[2]-(2.35-1/48000))<1e-12);assert.equal(h.get('stop').disabled,false);
+ kernel.setParams(processor.port.lastMessage.params);const release=kernel.process(new Float32Array(16800));
+ assert.ok(release.subarray(0,2100).some(x=>Math.abs(x)>.001),'queued voice/RF remains audible');
+ assert.equal(kernel.endCount,1);assert.equal(kernel.wasTransmit,false);
+ h.context.currentTime=2.35;h.timers.at(-1).fn();assert.equal(processor.disconnected,true);assert.equal(h.api.pausedAt,2);
+ await h.api.playFile();assert.equal(h.sources.at(-1).offset,2);assert.equal(h.processors.length,2);
+});
+
+test('rapid file rekey retains RF kernel and ignores prior input endings and cleanup even at old deadline',async()=>{
+ const h=await harness();h.api.params.fmMonitor=true;await h.api.playFile();const processor=h.processors.at(-1),gain=h.gains.at(-1),first=h.sources.at(-1),oldEnd=first.onended;
+ const kernel=new RadioKernel(48000,processor.options.processorOptions.params,101);kernel.process(new Float32Array(4800).fill(.1));
+ h.context.currentTime=2;await h.api.playFile();kernel.setParams(processor.port.lastMessage.params);kernel.process(new Float32Array(480));const oldCleanup=h.timers.at(-1);
+ const queued=kernel.delayWrite;h.context.currentTime=2.01;await h.api.playFile();
+ assert.equal(h.processors.length,1);assert.equal(h.sources.at(-1).offset,2);assert.equal(h.sources.at(-1).stopped,undefined);assert.equal(h.gains.at(-1),gain);
+ kernel.setParams(processor.port.lastMessage.params);kernel.processSample(.1);assert.equal(kernel.burstCount,2);assert.equal(kernel.endCount,1);assert.equal(kernel.fmAcquire,0);assert.equal(kernel.delayWrite,(queued+1)%kernel.delayBuffer.length);
+ h.context.currentTime=2.36;oldCleanup.fn();oldEnd();assert.equal(processor.disconnected,undefined);assert.equal(gain.disconnected,undefined);assert.equal(h.api.playing,true);
+ h.context.currentTime=3;await h.api.playFile();assert.equal(h.api.pausedAt,2.99);h.context.currentTime=3.01;await h.api.playFile();assert.equal(h.processors.length,1);
+});
+
+test('file pause while looping stops the source and resumes at its actual wrapped offset',async()=>{
+ const h=await harness();h.get('loop').checked=true;await h.api.playFile();h.context.currentTime=23;await h.api.playFile();assert.equal(h.api.pausedAt,3);assert.equal(h.sources.at(-1).stopAt,23);
+ h.context.currentTime=23.01;await h.api.playFile();assert.equal(h.sources.at(-1).offset,3);assert.equal(h.sources.at(-1).loop,true);assert.equal(h.processors.length,1);
+});
+
+test('pausing after exhausted nonloop input clamps position and never extends or raises the existing EOF envelope',async()=>{
+ const h=await harness();await h.api.playFile();h.context.currentTime=10.345;await h.api.playFile();assert.equal(h.api.pausedAt,10);
+ const events=h.gains.at(-1).gain.events;assert.ok(events.at(-2)[1]>.49&&events.at(-2)[1]<.51);assert.ok(Math.abs(events.at(-1)[2]-(496800-1)/48000)<1e-12);
+});
+
+test('Stop, import, mode, hidden page and seek cancel a paused file tail without affecting replacement output',async()=>{
+ for(const action of ['stop','import','mode','hidden','seek']){
+  const h=await harness();await h.api.playFile();h.context.currentTime=2;await h.api.playFile();const old=h.processors.at(-1),oldTimer=h.timers.at(-1);
+  h.context.currentTime=2.05;
+  if(action==='stop')h.get('stop').fire('click');
+  if(action==='import')h.api.setFile(h.buffer(2),'new.wav');
+  if(action==='mode')h.api.switchMode('mic');
+  if(action==='hidden'){h.document.hidden=true;h.document.fire('visibilitychange');}
+  if(action==='seek'){h.get('seek').value=500;h.get('seek').fire('input');}
+  assert.ok(Math.abs(h.gains.at(-1).gain.events.at(-1)[2]-2.06)<1e-12,action);
+  h.context.currentTime=2.061;h.timers.at(-1).fn();assert.equal(old.disconnected,true,action);
+  if(action==='mode')h.api.switchMode('file');h.document.hidden=false;await h.api.playFile();const fresh=h.processors.at(-1);h.context.currentTime=2.36;oldTimer.fn();assert.equal(fresh.disconnected,undefined,action);
+ }
+});
+
+test('tail attenuation UI is optional, preserves other controls and reaches export and matched snapshots',async()=>{
+ const h=await harness();assert.equal(h.get('tailGainDb').value,0);assert.equal(h.get('tailGainDb').disabled,false);
+ const before={squelch:h.api.params.squelch,tailMs:h.api.params.tailMs,output:h.api.params.output};
+ for(const db of [0,-6,-12]){h.get('tailGainDb').value=db;h.get('tailGainDb').fire('input');assert.equal(h.api.params.tailGainDb,db);assert.equal(h.get('tailGainDb-value').textContent,`${db} dB`);}
+ assert.deepEqual({squelch:h.api.params.squelch,tailMs:h.api.params.tailMs,output:h.api.params.output},before);
+ h.api.exportWav();assert.equal(h.workers.at(-1).sent.params.tailGainDb,-12);h.api.prepareMatch();assert.equal(h.workers.at(-1).sent.params.tailGainDb,-12);
+ h.api.params.perspective='operator';h.api.updateControls();assert.equal(h.get('tailGainDb').disabled,true);assert.equal(h.api.params.tailGainDb,-12);
+});
+
+
+test('rekey during file endpoint fade restores only retained gain smoothly and invalidates cleanup',async()=>{
+ const h=await harness();await h.api.playFile();h.context.currentTime=2;await h.api.playFile();const processor=h.processors.at(-1),cleanup=h.timers.at(-1),gain=h.gains.at(-1).gain;
+ h.context.currentTime=2.345;await h.api.playFile();const events=gain.events;
+ const set=events.findLast(e=>e[0]==='set'&&e[2]===2.345);assert.ok(set[1]>.49&&set[1]<.51);
+ assert.ok(events.some(e=>e[0]==='ramp'&&e[1]===1&&Math.abs(e[2]-2.355)<1e-12));
+ h.context.currentTime=2.36;cleanup.fn();assert.equal(processor.disconnected,undefined);assert.equal(h.api.playing,true);assert.equal(h.processors.length,1);
+});
+
+test('tail attenuation edits invalidate a prepared matched snapshot without changing pause intent',async()=>{
+ const h=await harness();h.api.prepareMatch();const old=h.workers.at(-1),key=h.api.matchKey();
+ h.get('tailGainDb').value=-6;h.get('tailGainDb').fire('input');assert.notEqual(h.api.matchKey(),key);assert.equal(old.terminated,true);assert.equal(h.api.playing,false);
+ for(const timer of [...h.timers])if(!timer.cancelled)timer.fn();assert.equal(h.workers.at(-1).sent.params.tailGainDb,-6);
+});
+
+
+test('repeated pause during partial gain recovery preserves the held level for rekey and Stop',async()=>{
+ for(const action of ['resume','stop']){
+  const h=await harness();await h.api.playFile();h.context.currentTime=2;await h.api.playFile();h.context.currentTime=2.345;await h.api.playFile();h.context.currentTime=2.347;await h.api.playFile();
+  const gain=h.gains.at(-1).gain,held=gain.events.findLast(e=>e[0]==='set'&&e[2]===2.347)[1];assert.ok(held>.59&&held<.61);
+  h.context.currentTime=2.36;if(action==='resume')await h.api.playFile();else h.get('stop').fire('click');
+  assert.equal(gain.events.findLast(e=>e[0]==='set'&&e[2]===2.36)[1],held,action);
+ }
 });

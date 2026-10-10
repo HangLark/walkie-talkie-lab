@@ -1,5 +1,5 @@
-import { DEFAULTS, TIMBRE_PROFILES, TIMBRE_KEYS, CHANNEL_PROFILES, applyTimbre, applyChannel } from './dsp.js?v=fm-auto-squelch-v4';
-import { OUTPUT_FADE_SECONDS, outputFadeSamples } from './output-boundary.js?v=fm-auto-squelch-v4';
+import { DEFAULTS, TIMBRE_PROFILES, TIMBRE_KEYS, CHANNEL_PROFILES, applyTimbre, applyChannel } from './dsp.js?v=fm-file-ptt-v5';
+import { OUTPUT_FADE_SECONDS, outputFadeSamples } from './output-boundary.js?v=fm-file-ptt-v5';
 const $ = id => document.getElementById(id);
 let params = { ...DEFAULTS }, preset = 'patrol', mode = 'file', context, worklet, monitorGain, source, stream, fileBuffer, monoSamples, fileName = '', playing = false, startTime = 0, pausedAt = 0, micPending = false, micEpoch = 0, loadEpoch = 0, worker, exportBusy = false, initPromise, raf;
 // A take keeps one seed across audition, comparison, and export. Only source/session changes renew it.
@@ -54,7 +54,7 @@ function updateControls(){
   for(const id of ['highpass','lowpass','drive','compression','emphasis','leveler'])$(id).disabled=analogReceiver;
   $('noise').disabled=params.perspective==='operator'||analogReceiver;
   $('fm-propagation').value=params.fmPropagation||'static';$('fm-propagation').disabled=!analogReceiver;
-  $('propagation-help').textContent=!analogReceiver?'传播模型仅用于模拟 FM 接收；当前路径绕过此设置。':params.fmPropagation==='moving'?'复基带 Rician 平坦衰落示意：K=4、最大多普勒 2 Hz、32 条散射分量。滑块设定平均 C/N；屏幕信号条显示实时瞬时模型 C/N，不是 RSSI。不代表真实路线。强接收仍可能清晰；可选“临界 C/N”观察衰落。暂停续播或跳转会重启该段信道状态。':'固定接收仍包含所选 C/N 的加性噪声。移动模式在 FM 鉴频前加入时变复增益，不是人声音色预设。';
+  $('propagation-help').textContent=!analogReceiver?'传播模型仅用于模拟 FM 接收；当前路径绕过此设置。':params.fmPropagation==='moving'?'复基带 Rician 平坦衰落示意：K=4、最大多普勒 2 Hz、32 条散射分量。滑块设定平均 C/N；屏幕信号条显示实时瞬时模型 C/N，不是 RSSI。不代表真实路线。强接收仍可能清晰；可选“临界 C/N”观察衰落。暂停收尾内快速续播保留该段信道状态；收尾后续播或跳转会重启该段信道状态。':'固定接收仍包含所选 C/N 的加性噪声。移动模式在 FM 鉴频前加入时变复增益，不是人声音色预设。';
   $('channel-state').hidden=!analogReceiver||params.fmPropagation!=='moving';
   if(analogReceiver&&params.fmPropagation==='moving')$('channel-state').textContent='开始试听后显示瞬时模型 C/N。';
   $('fm-monitor').value=params.fmMonitor?'open':'auto';$('fm-monitor').disabled=!analogReceiver;
@@ -67,6 +67,8 @@ function updateControls(){
   $('tx-input-help').textContent=analogReceiver?'仅作用于 FM 发射端的数字输入。0 dB 不额外放大；原声 A 不变。AGC 校正限于 −12 / +6 dB，目标与时序为未校准假设。':'发射输入增益与 AGC 仅用于模拟 FM；当前路径不使用这些设置。';
   $('parameter-help').textContent=analogReceiver?'FM 接收使用固定带限、750 µs 加重与 ±2.5 kHz 限幅。灰色旧参数不参与此路径；发射输入在输入源面板调整。输出 EQ 是可选辅助，默认关闭。':'本机侧音与数字式演示沿用音频近似链路，未模拟真实设备或数字声码器。';
   $('tailMs').disabled=!analogReceiver;
+  $('tailGainDb').disabled=!analogReceiver;$('tailGainDb').value=params.tailGainDb??0;$('tailGainDb-value').textContent=`${params.tailGainDb??0} dB`;
+  $('tail-gain-help').textContent=analogReceiver?'额外音量处理：0 dB 不衰减；仅在发射载波及缓冲人声排空后降低尾噪，不改变静噪检测或尾音时长。':'仅作用于模拟 FM 接收尾噪；当前路径不使用此设置。';
   document.querySelectorAll('.rf-choice').forEach(e=>{e.disabled=params.perspective==='operator';const selected=Object.entries(CHANNEL_PROFILES[e.dataset.channel].params).every(([key,value])=>params[key]===value);e.classList.toggle('active',selected);e.setAttribute('aria-pressed',selected);});
   $('rf-help').textContent=params.perspective==='operator'?'本机侧音绕过远端 RF，信号设置已保留，切回接收端后生效。':analogReceiver?`${params.fmPropagation==='moving'?'平均模型':'模型'} C/N：${params.quality===100?'无噪声极限':(-8+.48*params.quality).toFixed(1)+' dB'}（接收滤波器内）。不是 RSSI / SINAD 或距离；底噪由 FM 信道产生，静噪检测解调高频噪声。`:'数字式演示的相对控制量，不是 RSSI / SINAD 或距离测量。';
   $('radio-help').textContent=params.perspective==='operator'?'本机侧音使用音频近似，不经过远端 FM 信道；模式选择保留供返回接收端使用。':params.radio==='digital'?'数字风格仅模拟弱信号时的帧丢失；强信号不加位深破坏。不是 P25 / DMR 或任何语音编解码器。':'实验性窄带 FM：复基带调制、加噪、接收滤波与鉴频。±2.5 kHz 频偏 / 750 µs 加重。机制已测试，尚未用配对设备录音校准。';
@@ -150,12 +152,12 @@ function meter(data){
 
 async function ensureAudio(){
   if(initPromise)await initPromise;
-  if(!context){initPromise=(async()=>{const AC=window.AudioContext||window.webkitAudioContext;if(!AC)throw Error('浏览器不支持 Web Audio，请使用新版 Chrome、Edge、Firefox 或 Safari。');let c;try{c=new AC({sampleRate:48000,latencyHint:'interactive'});}catch(e){if(e.name!=='NotSupportedError')throw e;c=new AC({latencyHint:'interactive'});}try{if(!c.audioWorklet)throw Error('需要 HTTPS 或 localhost，以及支持 AudioWorklet 的浏览器。');await c.audioWorklet.addModule(new URL('./worklet.js?v=fm-auto-squelch-v4',import.meta.url));context=c;$('engine-rate').textContent=`音频引擎 ${(c.sampleRate/1000).toFixed(1)} kHz${c.sampleRate>96000?' · 高采样率可能无法稳定实时处理':''} · 文件解码与导出使用此采样率`;monitorGain=c.createGain();monitorGain.gain.value=mode==='mic'?0:listenVolume;monitorGain.connect(c.destination);}catch(e){await c.close();throw e;}})();try{await initPromise;}finally{initPromise=null;}}
+  if(!context){initPromise=(async()=>{const AC=window.AudioContext||window.webkitAudioContext;if(!AC)throw Error('浏览器不支持 Web Audio，请使用新版 Chrome、Edge、Firefox 或 Safari。');let c;try{c=new AC({sampleRate:48000,latencyHint:'interactive'});}catch(e){if(e.name!=='NotSupportedError')throw e;c=new AC({latencyHint:'interactive'});}try{if(!c.audioWorklet)throw Error('需要 HTTPS 或 localhost，以及支持 AudioWorklet 的浏览器。');await c.audioWorklet.addModule(new URL('./worklet.js?v=fm-file-ptt-v5',import.meta.url));context=c;$('engine-rate').textContent=`音频引擎 ${(c.sampleRate/1000).toFixed(1)} kHz${c.sampleRate>96000?' · 高采样率可能无法稳定实时处理':''} · 文件解码与导出使用此采样率`;monitorGain=c.createGain();monitorGain.gain.value=mode==='mic'?0:listenVolume;monitorGain.connect(c.destination);}catch(e){await c.close();throw e;}})();try{await initPromise;}finally{initPromise=null;}}
   await context.resume();
 }
 function createProcessor(destination=monitorGain){worklet?.disconnect();worklet?.port.close();worklet=new AudioWorkletNode(context,'radio-processor',{numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[1],processorOptions:{seed:mode==='file'?fileSeed:micSeed,params:{...params,vox:mode==='mic'&&params.vox,gateDry:mode==='mic',receiverActive:mode==='file',tx:mode==='file'}}});worklet.connect(destination);const active=worklet;worklet.port.onmessage=({data})=>{if(worklet===active&&data.type==='meter')meter(data);};}
 function clearMeters(){meter({input:0,output:0,signal:params.quality,carrier:false});}
-function capturePosition(){if(playing&&context)pausedAt=(context.currentTime-startTime)%playbackDuration();}
+function capturePosition(){if(playing&&context){const elapsed=Math.max(0,context.currentTime-startTime),duration=playbackDuration();pausedAt=source?.loop&&duration?elapsed%duration:Math.min(elapsed,duration);}}
 // Every file audition owns its output envelope. Old cleanup never touches the shared
 // headphone volume or a newer source/processor, even if the main thread is late.
 function disposePlayback(session){
@@ -165,16 +167,16 @@ function disposePlayback(session){
   session.processor?.disconnect();session.processor?.port.close();session.gain.disconnect();
 }
 function afterAudioTime(session,when,done){
-  clearTimeout(session.timer);
-  const check=()=>{if(session.disposed)return;if(context.state==='closed'||context.state==='suspended'){done();return;}const remaining=when-context.currentTime;
+  clearTimeout(session.timer);const epoch=session.cleanupEpoch=(session.cleanupEpoch??0)+1;
+  const check=()=>{if(session.disposed||session.cleanupEpoch!==epoch)return;if(context.state==='closed'||context.state==='suspended'){done();return;}const remaining=when-context.currentTime;
     if(remaining>0){session.timer=setTimeout(check,Math.max(1,remaining*1000));return;}done();};
   session.timer=setTimeout(check,Math.max(0,(when-context.currentTime)*1000));
 }
 function playbackGainAt(session,time){
   if(session.fadeEnd!==undefined&&time>=session.fadeStart)
-    return Math.max(0,Math.min(1,(session.fadeEnd-time)/(session.fadeEnd-session.fadeStart)));
+    return (session.fadeStartLevel??1)*Math.max(0,Math.min(1,(session.fadeEnd-time)/Math.max(1/context.sampleRate,session.fadeEnd-session.fadeStart)));
   return session.attackEnd!==undefined&&time<session.attackEnd
-    ?Math.max(0,(time-session.startedAt)/(session.attackEnd-session.startedAt)):1;
+    ?(session.attackStartLevel??0)+(1-(session.attackStartLevel??0))*Math.max(0,(time-session.startedAt)/(session.attackEnd-session.startedAt)):(session.heldGain??1);
 }
 function retirePlayback(session){
   if(!session||session.disposed)return;
@@ -190,7 +192,7 @@ function schedulePlaybackEnd(session){
   const now=context.currentTime,gain=session.gain.gain;
   if(session.sourceEndAt!==undefined&&now>=session.sourceEndAt)return;
   gain.cancelScheduledValues(now);gain.setValueAtTime(playbackGainAt(session,now),now);
-  session.fadeStart=session.fadeEnd=session.endAt=session.sourceEndAt=undefined;
+  session.fadeStart=session.fadeEnd=session.endAt=session.sourceEndAt=undefined;session.fadeStartLevel=1;
   if(session.attackEnd>now)gain.linearRampToValueAtTime(1,session.attackEnd);
   if(session.snapshot||session.source.loop)return;
   const duration=session.source.buffer.duration;
@@ -204,6 +206,23 @@ function schedulePlaybackEnd(session){
   session.fadeStart=session.startedAt+(totalSamples-fadeSamples)/rate;
   session.fadeEnd=session.startedAt+(totalSamples-1)/rate;
   gain.setValueAtTime(1,session.fadeStart);gain.linearRampToValueAtTime(0,session.fadeEnd);
+}
+function pauseFilePlayback(){
+  capturePosition();
+  const session=playbackSession;
+  if(!playing||!session?.processor||session.snapshot){stopPlayback(false);status(comparison?'匹配快照已暂停；快照不重建 PTT 过程。':'试听已暂停。');return;}
+  const now=context.currentTime,rate=context.sampleRate;
+  // Release the file's PTT: stop new input, but retain this kernel's queued voice,
+  // RF/filter state and normal release. Rekey during this window reuses it.
+  session.source.onended=null;try{session.source.stop(now);}catch{}session.source.disconnect();
+  const end=Math.min(now+Math.round(rate*.35)/rate,session.endAt??Infinity);
+  const gain=session.gain.gain,level=playbackGainAt(session,now);
+  gain.cancelScheduledValues(now);gain.setValueAtTime(level,now);
+  session.heldGain=level;session.attackEnd=undefined;session.fadeStartLevel=level;session.endAt=Math.max(now,end);session.fadeEnd=Math.max(now,session.endAt-1/rate);
+  session.fadeStart=Math.max(now,session.endAt-outputFadeSamples(rate,Math.round(rate*.35))/rate);
+  if(session.fadeStart>now)gain.setValueAtTime(level,session.fadeStart);
+  gain.linearRampToValueAtTime(0,session.fadeEnd);session.resumeAfterRelease=true;
+  stopPlayback(false,true);status('已松开文件 PTT：试听位置保留，语音与接收收尾后暂停。');
 }
 function stopPlayback(reset=true,drain=false){
   ++playEpoch;
@@ -232,7 +251,7 @@ function playbackDuration(){return comparison?.duration||fileBuffer?.duration||0
 function updateTime(time){$('timecode').innerHTML=`${seconds(time)} <i>/ ${seconds(playbackDuration())}</i>`;$('seek').value=playbackDuration()?Math.round(time/playbackDuration()*1000):0;$('seek').style.setProperty('--fill',`${Number($('seek').value)/10}%`);}
 async function playFile({resume=false}={}){
   if(mode!=='file'||!fileBuffer)return;
-  if(!resume&&(playing||playIntent)){capturePosition();stopPlayback(false);status('试听已暂停。');return;}
+  if(!resume&&(playing||playIntent)){pauseFilePlayback();return;}
   playIntent=true;
   if(matchEnabled&&(!comparison||comparisonKey!==matchKey())){
     $('play').innerHTML='<span>Ⅱ</span> 暂停等待';$('stop').disabled=false;updateSourceUI();
@@ -241,14 +260,18 @@ async function playFile({resume=false}={}){
   const epoch=++playEpoch;
   try{
     await ensureAudio();if(epoch!==playEpoch||!playIntent||mode!=='file'||!fileBuffer)return;
+    const startedAt=context.currentTime;
+    const continuing=!comparison&&fileDraining&&playbackSession?.resumeAfterRelease&&!playbackSession.disposed&&startedAt<playbackSession.endAt;
+    const retained=continuing?playbackSession:null,level=retained?playbackGainAt(retained,startedAt):1;
     fileDraining=false;
-    if(playbackSession){const old=playbackSession;playbackSession=null;worklet=null;retirePlayback(old);}
-    const gain=context.createGain(),startedAt=context.currentTime;gain.connect(monitorGain);
-    if(!comparison)createProcessor(gain);else{worklet?.disconnect();worklet?.port.close();worklet=null;clearMeters();}
+    if(retained){clearTimeout(retained.timer);++retained.cleanupEpoch;}
+    else if(playbackSession){const old=playbackSession;playbackSession=null;worklet=null;retirePlayback(old);}
+    const gain=retained?.gain??context.createGain();if(!retained)gain.connect(monitorGain);
+    if(!comparison){if(!retained)createProcessor(gain);}else{worklet?.disconnect();worklet?.port.close();worklet=null;clearMeters();}
     const active=context.createBufferSource();source=active;active.buffer=comparison?(params.mix?comparison.wet:comparison.dry):fileBuffer;active.loop=$('loop').checked;
     if(comparison){comparisonGain=gain;gain.gain.setValueAtTime(0,startedAt);gain.gain.linearRampToValueAtTime(1,startedAt+.008);active.connect(gain);}
     else active.connect(worklet);
-    playbackSession={source:active,processor:comparison?null:worklet,gain,snapshot:!!comparison,startedAt,offset:Math.min(pausedAt,Math.max(0,playbackDuration()-.001)),attackEnd:comparison?startedAt+.008:undefined};
+    playbackSession=Object.assign(retained??{},{source:active,processor:comparison?null:worklet,gain,snapshot:!!comparison,startedAt,offset:Math.min(pausedAt,Math.max(0,playbackDuration()-.001)),attackEnd:comparison?startedAt+.008:level<1?startedAt+OUTPUT_FADE_SECONDS:undefined,attackStartLevel:comparison?0:level,heldGain:1,fadeStart:undefined,fadeEnd:undefined,fadeStartLevel:1,endAt:undefined,sourceEndAt:undefined,resumeAfterRelease:false});
     schedulePlaybackEnd(playbackSession);
     monitorGain.gain.setTargetAtTime(listenVolume,context.currentTime,.01);pausedAt=Math.min(pausedAt,Math.max(0,playbackDuration()-.001));playing=true;sendParams();active.start(startedAt,pausedAt);startTime=startedAt-pausedAt;
     active.onended=()=>{if(source===active&&playing){const snapshot=!!comparison;stopPlayback(true,!snapshot);status(snapshot?'匹配快照播放结束（已含 350 ms 收尾）。':'文件播放结束，接收端保留 350 ms 收尾后关闭。');}};
@@ -284,7 +307,7 @@ function calibrateInput(){
   if(mode!=='file'||!monoSamples||params.radio!=='analog'||params.perspective!=='receiver')return;
   cancelInputCalibration();if(playing||playIntent){capturePosition();stopPlayback(false);}
   calibrationBusy=true;const seed=fileSeed,gainRevision=txGainRevision,before=params.txInputGainDb??0;
-  let current;try{current=new Worker(new URL('./calibration-worker.js?v=fm-auto-squelch-v4',import.meta.url),{type:'module'});}catch(error){cancelInputCalibration();$('calibration-status').textContent=`无法启动校准：${error.message}。输入增益未更改。`;return;}calibrationWorker=current;updateCalibrationControls();
+  let current;try{current=new Worker(new URL('./calibration-worker.js?v=fm-file-ptt-v5',import.meta.url),{type:'module'});}catch(error){cancelInputCalibration();$('calibration-status').textContent=`无法启动校准：${error.message}。输入增益未更改。`;return;}calibrationWorker=current;updateCalibrationControls();
   $('calibration-status').textContent='正在估计输入电平…试听已暂停，完成后不会自动播放。';
   current.onmessage=({data})=>{
     if(calibrationWorker!==current||fileSeed!==seed||gainRevision!==txGainRevision||mode!=='file')return;
@@ -304,7 +327,7 @@ function stopMic(message=true){micTransmitting=false;++micEpoch;micPending=false
 async function startMic(){if(micPending||stream)return;const epoch=++micEpoch;micPending=true;$('start-mic').disabled=true;$('stop-mic').disabled=false;$('start-mic').textContent='等待麦克风权限…';updateSourceUI();try{if(!window.isSecureContext)throw Error('麦克风需要 HTTPS 或 localhost。');if(!navigator.mediaDevices?.getUserMedia)throw Error('此浏览器不支持麦克风访问。');await ensureAudio();if(epoch!==micEpoch||mode!=='mic')return;const s=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});if(epoch!==micEpoch||mode!=='mic'){s.getTracks().forEach(t=>t.stop());return;}stream=s;micSeed=createTakeSeed();createProcessor();source=context.createMediaStreamSource(stream);source.connect(worklet);monitorGain.gain.setValueAtTime(0,context.currentTime);$('monitor').checked=false;$('ptt').disabled=params.vox;$('stop-mic').disabled=false;$('mic-status').textContent='麦克风已开启 · 监听关闭';$('start-mic').textContent='麦克风正在使用';$('screen-mode').textContent='MIC / READY';sendParams();updateSourceUI();for(const track of stream.getTracks())track.addEventListener('ended',()=>{if(stream){stopMic(false);status('麦克风连接已断开。检查设备后重新开启。',true);}});status('监听关闭：不会听到语音或开关台声。戴耳机后手动开启「耳机监听」，选 B 电台，再按住 / 松开 PTT。');}catch(e){if(epoch===micEpoch){stopMic(false);const hints={NotAllowedError:'未获得麦克风权限。请在地址栏站点设置中允许访问，然后重试。',NotFoundError:'未找到麦克风。连接设备后重试。',NotReadableError:'麦克风被其他应用占用或无法读取，请检查设备。'};status(hints[e.name]||`麦克风启动失败：${e.message}`,true);}}finally{if(epoch===micEpoch)micPending=false;}}
 function switchMode(next){if(mode===next)return;cancelInputCalibration();cancelDemoLoad();finishExport();cancelComparison();++loadEpoch;if(mode==='file')stopPlayback();else stopMic(false);mode=next;$('match-prepare').disabled=next!=='file';$('file-source').hidden=next!=='file';$('mic-source').hidden=next!=='mic';for(const m of ['file','mic']){$(`${m}-tab`).classList.toggle('active',m===next);$(`${m}-tab`).setAttribute('aria-selected',m===next);$(`${m}-tab`).tabIndex=m===next?0:-1;}$('screen-mode').textContent=next==='file'?'FILE / STANDBY':'MIC / STANDBY';updateSourceUI();settingsNotice();if(next==='file')drawWave();status(next==='mic'?'戴好耳机后，再开启麦克风。':'文件模式就绪。');}
 function ptt(pressed){if(!stream||(params.vox&&pressed))return;$('ptt').classList.toggle('transmitting',pressed);$('screen-mode').textContent=pressed?'MIC / TRANSMITTING':'MIC / READY';sendParams();}
-function exportWav(){if(mode!=='file'||!monoSamples||exportBusy)return;exportBusy=true;$('export').disabled=true;$('cancel-export').hidden=false;const samples=monoSamples.slice(),name=fileName.replace(/\.[^.]+$/,'').replace(/[<>:"/\\|?*]/g,'_');worker=new Worker(new URL('./render-worker.js?v=fm-auto-squelch-v4',import.meta.url),{type:'module'});const current=worker;status('正在本地渲染 0%…');worker.onmessage=({data})=>{if(worker!==current||mode!=='file')return;if(data.error){finishExport();status(`导出失败：${data.error}`,true);}else if(data.buffer){const blob=new Blob([data.buffer],{type:'audio/wav'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`${name}-radio.wav`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);finishExport();status('WAV 已生成并交给浏览器下载。使用开始导出时的电台参数，包含 350ms 收尾。');}else status(`正在本地渲染 ${Math.round(data.progress*100)}%…`);};worker.onerror=e=>{if(worker!==current)return;finishExport();status(`导出失败：${e.message}`,true);};worker.postMessage({samples,rate:fileBuffer.sampleRate,seed:fileSeed,params:{...params}},[samples.buffer]);}
+function exportWav(){if(mode!=='file'||!monoSamples||exportBusy)return;exportBusy=true;$('export').disabled=true;$('cancel-export').hidden=false;const samples=monoSamples.slice(),name=fileName.replace(/\.[^.]+$/,'').replace(/[<>:"/\\|?*]/g,'_');worker=new Worker(new URL('./render-worker.js?v=fm-file-ptt-v5',import.meta.url),{type:'module'});const current=worker;status('正在本地渲染 0%…');worker.onmessage=({data})=>{if(worker!==current||mode!=='file')return;if(data.error){finishExport();status(`导出失败：${data.error}`,true);}else if(data.buffer){const blob=new Blob([data.buffer],{type:'audio/wav'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`${name}-radio.wav`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);finishExport();status('WAV 已生成并交给浏览器下载。使用开始导出时的电台参数，包含 350ms 收尾。');}else status(`正在本地渲染 ${Math.round(data.progress*100)}%…`);};worker.onerror=e=>{if(worker!==current)return;finishExport();status(`导出失败：${e.message}`,true);};worker.postMessage({samples,rate:fileBuffer.sampleRate,seed:fileSeed,params:{...params}},[samples.buffer]);}
 function finishExport(){worker?.terminate();worker=null;exportBusy=false;$('export').disabled=mode!=='file'||!monoSamples;$('cancel-export').hidden=true;}
 $('file-input').addEventListener('change',e=>loadFile(e.target.files[0]));const zone=$('drop-zone');for(const event of ['dragenter','dragover'])zone.addEventListener(event,e=>{e.preventDefault();zone.classList.add('dragging');});for(const event of ['dragleave','drop'])zone.addEventListener(event,e=>{e.preventDefault();zone.classList.remove('dragging');});zone.addEventListener('drop',e=>loadFile(e.dataTransfer.files[0]));zone.tabIndex=0;zone.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('file-input').click();}});
 $('human-demo-slt').addEventListener('click',()=>humanDemo('slt'));$('human-demo-bdl').addEventListener('click',()=>humanDemo('bdl'));$('cancel-demo').addEventListener('click',()=>{++loadEpoch;cancelDemoLoad();status('已取消示例载入。');});$('demo').addEventListener('click',demo);$('play').addEventListener('click',playFile);$('stop').addEventListener('click',()=>{if(comparisonWorker||matchTimer!==undefined){clearMatchJob();comparison=null;comparisonKey='';$('match-status').textContent='匹配待更新 · 按试听继续';}stopPlayback();status('试听已停止。');});$('loop').addEventListener('change',()=>{if(source&&mode==='file'){source.loop=$('loop').checked;if(playbackSession)schedulePlaybackEnd(playbackSession);}});$('file-tab').addEventListener('click',()=>switchMode('file'));$('mic-tab').addEventListener('click',()=>switchMode('mic'));document.querySelector('.tabbar').addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();switchMode(mode==='file'?'mic':'file');$(`${mode}-tab`).focus();}});$('mic-tab').tabIndex=-1;
@@ -314,7 +337,7 @@ $('calibrate-input').addEventListener('click',calibrateInput);$('cancel-calibrat
 $('tx-mic-agc').addEventListener('change',()=>{if(params.perspective!=='receiver'||params.radio!=='analog')return;params.txMicAgc=$('tx-mic-agc').checked;updateControls();sendParams();status(params.txMicAgc?'麦克风自动增益模型已开启。校正范围 −12 / +6 dB，目标与时序尚未设备校准。':'麦克风自动增益模型已关闭。');});
 $('fm-propagation').addEventListener('change',()=>{if(params.perspective!=='receiver'||params.radio!=='analog')return;params.fmPropagation=$('fm-propagation').value;updateControls();sendParams();status(params.fmPropagation==='moving'?'已切换到移动衰落示意模型。静噪与监听设置保持不变。':'已切换到固定接收。当前 C/N 与静噪设置保留。');});
 $('fm-monitor').addEventListener('change',()=>{if(params.perspective!=='receiver'||params.radio!=='analog')return;params.fmMonitor=$('fm-monitor').value==='open';updateControls();sendParams();status(params.fmMonitor?'已关闭自动静噪，仅用于通话试听与有限收尾；待机保持安静。请保持低音量。不会启动播放、麦克风或耳机监听。':'已恢复自动接收静噪。');});
-$('vox').addEventListener('change',()=>{ptt(false);params.vox=$('vox').checked;$('ptt').disabled=!stream||params.vox;updateSourceUI();sendParams();});for(const id of ['perspective','radio','permit'])$(id).addEventListener('change',()=>{cancelInputCalibration();releaseForSettings();params[id]=$(id).value;updateControls();sendParams();restartFileForSettings();settingsNotice();status(mode==='file'?'通话行为已更新，试听位置保留。':'通话行为在当前通话收尾后生效；持续 VOX 请停顿后再说话。');});for(const id of ['output','voxThreshold','cueLevel','tailMs','txInputGainDb'])$(id).addEventListener('input',()=>{if(id==='txInputGainDb'){cancelInputCalibration(true);++txGainRevision;$('calibration-status').textContent='使用手动输入增益；不会自动覆盖。';}params[id]=Number($(id).value);updateControls();sendParams();});for(const [id,mix] of [['dry',0],['wet',1]])$(id).addEventListener('click',()=>{const resume=(playing||playIntent)&&!!comparison;if(resume){capturePosition();stopPlayback(false);}params.mix=mix;updateControls();sendParams();if(resume)playFile({resume:true});status(mix?'试听已切换到 B 电台效果。':'试听已切换到 A 原声（未经电台处理）。');});$('reset').addEventListener('click',()=>applyPreset(preset));$('export').addEventListener('click',exportWav);$('cancel-export').addEventListener('click',()=>{finishExport();status('已取消导出。');});
+$('vox').addEventListener('change',()=>{ptt(false);params.vox=$('vox').checked;$('ptt').disabled=!stream||params.vox;updateSourceUI();sendParams();});for(const id of ['perspective','radio','permit'])$(id).addEventListener('change',()=>{cancelInputCalibration();releaseForSettings();params[id]=$(id).value;updateControls();sendParams();restartFileForSettings();settingsNotice();status(mode==='file'?'通话行为已更新，试听位置保留。':'通话行为在当前通话收尾后生效；持续 VOX 请停顿后再说话。');});for(const id of ['output','voxThreshold','cueLevel','tailMs','tailGainDb','txInputGainDb'])$(id).addEventListener('input',()=>{if(id==='txInputGainDb'){cancelInputCalibration(true);++txGainRevision;$('calibration-status').textContent='使用手动输入增益；不会自动覆盖。';}params[id]=Number($(id).value);updateControls();sendParams();});for(const [id,mix] of [['dry',0],['wet',1]])$(id).addEventListener('click',()=>{const resume=(playing||playIntent)&&!!comparison;if(resume){capturePosition();stopPlayback(false);}params.mix=mix;updateControls();sendParams();if(resume)playFile({resume:true});status(mix?'试听已切换到 B 电台效果。':'试听已切换到 A 原声（未经电台处理）。');});$('reset').addEventListener('click',()=>applyPreset(preset));$('export').addEventListener('click',exportWav);$('cancel-export').addEventListener('click',()=>{finishExport();status('已取消导出。');});
 
 function matchKey(){const {mix,vox,gateDry,voxThreshold,tx,...sound}=params;return JSON.stringify({seed:fileSeed,sound});}
 function clearMatchJob(){++comparisonEpoch;if(matchTimer!==undefined){clearTimeout(matchTimer);matchTimer=undefined;}comparisonWorker?.terminate();comparisonWorker=null;}
@@ -338,7 +361,7 @@ function prepareMatch(){
   const epoch=++comparisonEpoch,buffer=fileBuffer,key=matchKey();comparisonKey=key;
   $('match-prepare').hidden=true;$('match-off').hidden=false;$('match-status').textContent='正在更新匹配…';
   if(resume){$('play').innerHTML='<span>Ⅱ</span> 暂停等待';$('stop').disabled=false;}updateSourceUI();
-  const current=new Worker(new URL('./comparison-worker.js?v=fm-auto-squelch-v4',import.meta.url),{type:'module'});comparisonWorker=current;
+  const current=new Worker(new URL('./comparison-worker.js?v=fm-file-ptt-v5',import.meta.url),{type:'module'});comparisonWorker=current;
   current.onmessage=({data})=>{
     if(epoch!==comparisonEpoch||mode!=='file'||fileBuffer!==buffer||!matchEnabled)return;
     if(key!==matchKey()){checkComparison();return;}

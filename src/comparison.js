@@ -1,4 +1,4 @@
-import { renderRadio, sanitizeParams } from './dsp.js?v=fm-auto-squelch-v4';
+import { renderRadio, sanitizeParams } from './dsp.js?v=fm-file-ptt-v5';
 
 /** Fixed, shared-mask RMS matching, not perceptual loudness or speech recognition. */
 export function prepareComparison(input, rate, settings, seed) {

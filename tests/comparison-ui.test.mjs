@@ -82,3 +82,10 @@ test('matched natural completion does not add a second receiver postroll',async(
  const h=await harness();h.api.prepareMatch();h.workers.at(-1).onmessage(readyData());await h.api.playFile();h.sources.at(-1).onended();
  assert.equal(h.api.playing,false);assert.equal(h.get('stop').disabled,true);assert.equal(h.get('status-text').textContent,'匹配快照播放结束（已含 350 ms 收尾）。');
 });
+
+
+test('matched pause remains aligned snapshot playback and explicitly discloses no rebuilt PTT',async()=>{
+ const h=await harness();h.api.prepareMatch();h.workers.at(-1).onmessage(readyData());await h.api.playFile();h.context.currentTime=.4;await h.api.playFile();
+ assert.equal(h.api.pausedAt,.4);assert.equal(h.api.playing,false);assert.match(h.get('status-text').textContent,/快照不重建 PTT/);
+ await h.api.playFile();assert.equal(h.sources.at(-1).offset,.4);
+});

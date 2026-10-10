@@ -1,7 +1,7 @@
-import { applyOutputWindowFade } from './output-boundary.js?v=fm-auto-squelch-v4';
-import { AnalogFM, qualityToCnrDb } from './analog-fm.js?v=fm-auto-squelch-v4';
+import { applyOutputWindowFade } from './output-boundary.js?v=fm-file-ptt-v5';
+import { AnalogFM, qualityToCnrDb } from './analog-fm.js?v=fm-file-ptt-v5';
 /** Shared, allocation-free per-sample approximate radio audio kernel. Not a hardware/codec emulator. */
-export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 0, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 0, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, fmMonitor: false, receiverActive: true, fmPropagation: 'static', txInputGainDb: 0, txMicAgc: false, vox: false, gateDry: false, voxThreshold: -42, tx: true });
+export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 0, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 0, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, tailGainDb: 0, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, fmMonitor: false, receiverActive: true, fmPropagation: 'static', txInputGainDb: 0, txMicAgc: false, vox: false, gateDry: false, voxThreshold: -42, tx: true });
 // Legacy stress-test configurations; not user-facing device models or calibrated presets.
 export const PRESETS = Object.freeze({
   patrol: { name: '巡逻频道', description: '模拟接收端：清晰窄带语音、开台声与可调静噪尾音', ...DEFAULTS },
@@ -26,7 +26,7 @@ export const CHANNEL_PROFILES = Object.freeze({
 export function applyTimbre(current,key) { return sanitizeParams({...current,...TIMBRE_PROFILES[key]?.params}); }
 export function applyChannel(current,key) { return sanitizeParams({...current,...CHANNEL_PROFILES[key]?.params}); }
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const ranges = { highpass: [150, 800], lowpass: [1600, 4200], drive: [1, 5], compression: [1, 8], leveler: [0, 100], emphasis: [0, 3], quality: [0, 100], noise: [0, 100], squelch: [0, 65], speaker: [0, 6], resonanceHz: [800, 2400], resonanceQ: [.5, 3], body: [-9, 6], cueLevel: [0, 100], tailMs: [0, 200], output: [0, 100], mix: [0, 1], txInputGainDb: [-12, 24], voxThreshold: [-65, -15] };
+const ranges = { highpass: [150, 800], lowpass: [1600, 4200], drive: [1, 5], compression: [1, 8], leveler: [0, 100], emphasis: [0, 3], quality: [0, 100], noise: [0, 100], squelch: [0, 65], speaker: [0, 6], resonanceHz: [800, 2400], resonanceQ: [.5, 3], body: [-9, 6], cueLevel: [0, 100], tailMs: [0, 200], tailGainDb: [-24, 0], output: [0, 100], mix: [0, 1], txInputGainDb: [-12, 24], voxThreshold: [-65, -15] };
 const PARAM_KEYS = Object.keys(ranges);
 const PERMIT_FREQUENCIES = [910, 1210, 1510];
 export function sanitizeParams(params = {}, base = DEFAULTS) {
@@ -132,6 +132,8 @@ export class RadioKernel {
     this.emphasisA = 1 - Math.exp(-2 * Math.PI * 900 / sampleRate);
     this.attack = Math.exp(-1 / (.004 * sampleRate)); this.release = Math.exp(-1 / (.09 * sampleRate));
     this.delayBuffer = new Float32Array(Math.ceil(sampleRate*.1)+1); this.delayWrite = 0; this.delaySamples = 0;
+    this.tailOutputGain = this.tailOutputTarget = 1; this.tailOutputStep = this.tailOutputRemaining = 0;
+    this.tailOutputRampSamples = Math.max(1, Math.ceil(sampleRate*.005));
     this.txAge = -1; this.releaseAge = -1; this.releaseLength = 0; this.burstCount = 0; this.endCount = 0; 
     this.burstPerspective = this.p.perspective; this.burstRadio = this.p.radio; this.burstPermit = this.p.permit;
     this.configure();
@@ -301,7 +303,21 @@ export class RadioKernel {
     const absX = Math.abs(x);
     // Transparent below .85; soft safety knee protects against unsquelched FM noise.
     const fmSafe = absX <= .85 ? x : Math.sign(x)*(.85+.11*Math.tanh((absX-.85)/.11));
-    const wet = analogReceiver ? fmSafe : Math.tanh((x + cue*p.cueLevel/100)*1.25) * .96;
+    // Optional output shaping, not a modeled hardware squelch parameter.
+    // Wait until RF actually ends, after all queued speech and filter drain.
+    // Five-ms finite ramps avoid a new gain discontinuity, and recover to exact
+    // unity before a re-key's newly captured speech exits the 24-ms voice queue.
+    const tailGainTarget = analogReceiver && !this.fmCarrierActive && this.releaseAge >= 0 && this.releaseLength > 0 ? 10**(t.tailGainDb/20) : 1;
+    if (tailGainTarget !== this.tailOutputTarget) {
+      this.tailOutputTarget = tailGainTarget; this.tailOutputRemaining = this.tailOutputRampSamples;
+      this.tailOutputStep = (tailGainTarget-this.tailOutputGain)/this.tailOutputRemaining;
+    }
+    if (this.tailOutputRemaining > 0) {
+      this.tailOutputGain += this.tailOutputStep;
+      if (--this.tailOutputRemaining === 0) this.tailOutputGain = this.tailOutputTarget;
+    }
+    // Apply after the safety knee so settled dB attenuation stays exact.
+    const wet = analogReceiver ? fmSafe*this.tailOutputGain : Math.tanh((x + cue*p.cueLevel/100)*1.25) * .96;
     this.dryGate += ((transmit ? 1 : 0) - this.dryGate) * this.fadeSmooth;
     const dry = clamp(Number.isFinite(input) ? input : 0, -1, 1) * (t.gateDry ? this.dryGate : 1);
     const out = clamp((wet*p.mix + dry*(1-p.mix)) * p.output/100, -.97999996, .97999996);

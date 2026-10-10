@@ -1,4 +1,4 @@
-import { FlatFading } from './rf-fading.js?v=fm-auto-squelch-v4';
+import { FlatFading } from './rf-fading.js?v=fm-file-ptt-v5';
 /** Narrowband FM complex-baseband link. No RF hardware, device or codec emulation.
  * See ANALOG_FM_MODEL.md for units, noise reference, approximations and sources. */
 const TAU = 2 * Math.PI;
