@@ -1,4 +1,4 @@
-import { RadioKernel } from './dsp.js?v=fm-transmitter-v1';
+import { RadioKernel } from './dsp.js?v=fm-receiver-session-v2';
 class RadioProcessor extends AudioWorkletProcessor {
   constructor(options) { super(); this.kernel = new RadioKernel(sampleRate, options.processorOptions?.params, options.processorOptions?.seed); this.frames = 0; this.port.onmessage = ({data}) => { if (data.type === 'params') this.kernel.setParams(data.params); }; }
   process(inputs, outputs) {
@@ -11,7 +11,7 @@ class RadioProcessor extends AudioWorkletProcessor {
       // Peak covers every internal-rate carrier-on sample since the last
       // report, including peaks between low-rate host samples. Reading/resetting
       // these counters never changes transmitter, RF or receiver state.
-      this.port.postMessage({ type: 'meter', input: this.kernel.meterIn, output: this.kernel.meterOut, carrier: this.kernel.carrier, fmRxOpen: this.kernel.fmRxOpen, fmMonitorActive: this.kernel.fmMonitorActive, fmPropagation: fm.propagationMode, fmChannelPower: fm.propagationPower, fmInstantCnrDb: fm.instantaneousCnrDb, signal: this.kernel.signal, vox: this.kernel.voxHold > 0, transmitting: this.kernel.wasTransmit,
+      this.port.postMessage({ type: 'meter', input: this.kernel.meterIn, output: this.kernel.meterOut, carrier: this.kernel.carrier, fmRxOpen: this.kernel.fmRxOpen, receiverActive: this.kernel.target.receiverActive, activePerspective: this.kernel.burstPerspective, activeRadio: this.kernel.burstRadio, fmMonitorActive: this.kernel.fmMonitorActive, fmPropagation: fm.propagationMode, fmChannelPower: fm.propagationPower, fmInstantCnrDb: fm.instantaneousCnrDb, signal: this.kernel.signal, vox: this.kernel.voxHold > 0, transmitting: this.kernel.wasTransmit,
         txDeviationPeakHz:analog?fm.txDeviationPeakHz:0,txAgcGainDb:analog?fm.txAgc.appliedGainDb:0,txInputRms:analog?Math.sqrt(fm.txAgc.power):0,txLimiterFraction:analog&&count?fm.txLimitedSamples/count:0,txGuardFraction:analog&&count?fm.txGuardLimitedSamples/count:0 });
       fm.resetTxMeter();
     }

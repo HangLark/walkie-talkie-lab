@@ -1,5 +1,5 @@
-import { proposeInputCalibration } from './input-calibration.js?v=fm-transmitter-v1';
-import { AnalogFM } from './analog-fm.js?v=fm-transmitter-v1';
+import { proposeInputCalibration } from './input-calibration.js?v=fm-receiver-session-v2';
+import { AnalogFM } from './analog-fm.js?v=fm-receiver-session-v2';
 // Measure the current numerical TX response, never play this probe or touch user PCM.
 function measureResponseAt1k(rate){
   const fm=new AnalogFM(rate,{txInputGainDb:0,txMicAgc:false,cnrDb:Infinity});

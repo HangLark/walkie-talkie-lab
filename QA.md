@@ -1,3 +1,16 @@
+# Receiver-session correction · 2026-10-10
+
+Work remained in the cloud workspace, restored from public source commit c3bf59fc7a194794a8d6de2f070600445937b1cd. No personal microphone or user computer was accessed; no publication is implied by this report.
+
+- Replaced the ambiguous RF checkbox with explicit automatic/open receiver selection. Open listening is independent of PTT while an intentional session is active. Headphone monitoring remains a separate opt-in, OFF on every microphone restart.
+- Fake DOM/audio tests exercise actual app handlers for keyboard PTT, release, blur, re-key, RF/path changes, monitor off, microphone Stop/restart, source switch, hidden/pagehide, 350 ms natural-file drain, explicit Stop and stale cleanup callbacks. They require no device permissions.
+- The fixed 24 ms voice buffer is unchanged. Automatic acquisition can suppress immediate speech onset; no adaptive queue, mandatory start noise or hardware acquisition-time guarantee was added.
+- File/export/matched playback remains a finite source-plus-350 ms receiver window with no extra preroll. Explicit pause/Stop and hidden-page cleanup stop listening immediately. Matched snapshots are not live receiver telemetry.
+- Integrated `npm run check`: 179 tests passed, zero failures, build succeeded. App/build/server module syntax checks also passed. The publishing coordinator must repeat the final frozen-source check after any cache-version update.
+- Browser rendering, physical headphone listening, real microphone permissions and device latency are separate checks. Automated waveform/lifecycle tests do not certify a physical radio match.
+
+---
+
 # Verification report
 
 ## 2026-10-09 Speech dynamics / channel revision

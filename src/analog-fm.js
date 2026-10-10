@@ -1,4 +1,4 @@
-import { FlatFading } from './rf-fading.js?v=fm-transmitter-v1';
+import { FlatFading } from './rf-fading.js?v=fm-receiver-session-v2';
 /** Narrowband FM complex-baseband link. No RF hardware, device or codec emulation.
  * See ANALOG_FM_MODEL.md for units, noise reference, approximations and sources. */
 const TAU = 2 * Math.PI;

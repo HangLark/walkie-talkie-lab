@@ -5,8 +5,8 @@ import vm from 'node:vm';
 import {DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel} from '../src/dsp.js';
 async function harness({cryptoAvailable=true,fetchImpl}={}){
  let entropy=100;
- const elements=new Map(),workers=[],sources=[],processors=[],downloads=[];
- function element(id=''){const handlers=new Map(),classes=new Set();return {id,tagName:'DIV',style:{setProperty(){}},children:[],dataset:{},checked:false,disabled:false,value:0,classList:{add(x){classes.add(x);},remove(x){classes.delete(x);},contains(x){return classes.has(x);},toggle(x,v){if(v)classes.add(x);else classes.delete(x);}},addEventListener(n,f){handlers.set(n,f);},fire(n){return handlers.get(n)?.({target:this,preventDefault(){}});},setAttribute(){},append(e){this.children.push(e);},querySelector(){return element();},getBoundingClientRect(){return {width:0};},click(){downloads.push(this.download);}};}
+ const elements=new Map(),workers=[],sources=[],processors=[],downloads=[],timers=[];
+ function element(id=''){const handlers=new Map(),classes=new Set();return {id,tagName:'DIV',style:{setProperty(){}},children:[],dataset:{},checked:false,disabled:false,value:0,classList:{add(x){classes.add(x);},remove(x){classes.delete(x);},contains(x){return classes.has(x);},toggle(x,v){if(v)classes.add(x);else classes.delete(x);}},addEventListener(n,f){handlers.set(n,f);},fire(n,event={}){return handlers.get(n)?.({target:this,preventDefault(){},...event});},setAttribute(){},append(e){this.children.push(e);},querySelector(){return element();},getBoundingClientRect(){return {width:0};},click(){downloads.push(this.download);}};}
  const get=id=>{if(!elements.has(id))elements.set(id,element(id));return elements.get(id);};
  const document={...element(),getElementById:get,createElement:element,querySelectorAll:()=>[],querySelector:element};
  const gain=()=>({value:1,setTargetAtTime(v){this.value=v;},setValueAtTime(v){this.value=v;},cancelScheduledValues(){},linearRampToValueAtTime(v){this.value=v;}});
@@ -15,9 +15,9 @@ async function harness({cryptoAvailable=true,fetchImpl}={}){
  class Worker{constructor(){workers.push(this);}postMessage(data){this.sent=data;}terminate(){this.terminated=true;}}
  class AudioWorkletNode{constructor(c,n,options){this.options=options;this.port={postMessage(message){this.lastMessage=message;},close(){}};processors.push(this);}connect(){}disconnect(){this.disconnected=true;}}
  const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
- const scope={fetch:fetchImpl,AbortController,crypto:cryptoAvailable?{getRandomValues(a){a[0]=++entropy;return a;}}:undefined,navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){},addEventListener(){}}]})}},document,window:{...element(),isSecureContext:true},DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,AudioWorkletNode,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(){return 1;},clearTimeout(){},URL:class extends URL{static createObjectURL(){return 'blob:test';}static revokeObjectURL(){}},Blob,Float32Array,Math};
+ const scope={fetch:fetchImpl,AbortController,crypto:cryptoAvailable?{getRandomValues(a){a[0]=++entropy;return a;}}:undefined,navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){},addEventListener(){}}]})}},document,window:{...element(),isSecureContext:true},DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,AudioWorkletNode,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(fn,ms){timers.push({fn,ms});return timers.length-1;},clearTimeout(id){if(timers[id])timers[id].cancelled=true;},URL:class extends URL{static createObjectURL(){return 'blob:test';}static revokeObjectURL(){}},Blob,Float32Array,Math};
  vm.runInNewContext(code+`\nglobalThis.api={controls,format,cnrLabel,meter,calibrateInput,undoInputCalibration,ensureAudio,resetContext(){context=null;initPromise=null;},loadFile,createTakeSeed,demo,humanDemo,startMic,stopMic,prepareMatch,matchKey,checkComparison,ptt,get fileSeed(){return fileSeed;},get micSeed(){return micSeed;},applyPreset,applyRF,updateControls,playFile,stopPlayback,switchMode,setFile,exportWav,finishExport,setup(c,b){context=c;monitorGain=c.createGain();setFile(b,'original.wav');},get params(){return params;},get playing(){return playing;},get pausedAt(){return pausedAt;},get exportBusy(){return exportBusy;}};`,scope);
- scope.api.setup(context,buffer());return {...scope,get,workers,sources,processors,downloads,context,buffer};
+ scope.api.setup(context,buffer());return {...scope,get,workers,sources,processors,downloads,timers,context,buffer};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 test('QA: voice profile preserves active processor, position and unrelated dimensions; paused selection stays paused',async()=>{
@@ -141,7 +141,7 @@ test('QA: analog FM fixed-chain controls are visibly inactive and other paths re
 
 test('QA: closed receiver squelch is distinguished from continued transmission',async()=>{
  const h=await harness();await h.api.playFile();h.api.meter({input:.1,output:0,signal:30,carrier:false,transmitting:true,fmRxOpen:false});
- assert.equal(h.get('carrier-text').textContent,'静噪关闭');assert.match(h.get('receiver-status').textContent,/发射仍在进行/);assert.equal(h.api.playing,true);
+ assert.equal(h.get('carrier-text').textContent,'自动静噪·已静音');assert.match(h.get('receiver-status').textContent,/发射仍在进行/);assert.equal(h.api.playing,true);
  h.api.meter({input:.1,output:.1,signal:90,carrier:true,transmitting:true,fmRxOpen:true});assert.equal(h.get('carrier-text').textContent,'接收');assert.match(h.get('receiver-status').textContent,/自动静噪已放行/);
  h.api.meter({input:0,output:0,signal:90,carrier:false,transmitting:false});assert.equal(h.get('carrier-text').textContent,'待机');
 });
@@ -154,21 +154,21 @@ test('QA: engine requests interactive 48 kHz and discloses actual fallback rate'
 });
 
 test('QA: receiver open-squelch is explicit, reversible and never starts audio or microphone monitoring',async()=>{
- const h=await harness();h.api.updateControls();assert.equal(h.get('fm-monitor').checked,false);assert.equal(h.get('fm-monitor').disabled,false);assert.match(h.get('fm-monitor-help').textContent,/先降低试听音量/);
- const seed=h.api.fileSeed;h.get('fm-monitor').checked=true;h.get('fm-monitor').fire('change');assert.equal(h.api.params.fmMonitor,true);assert.equal(h.api.playing,false);assert.equal(h.sources.length,0);assert.equal(h.get('monitor').checked,false);assert.equal(h.api.fileSeed,seed);assert.equal(h.get('squelch').disabled,true);
- await h.api.playFile();h.api.meter({input:.1,output:.1,signal:35,transmitting:true,carrier:false,fmRxOpen:true,fmMonitorActive:true});assert.equal(h.get('carrier-text').textContent,'静噪打开');assert.match(h.get('receiver-status').textContent,/手动打开接收静噪/);assert.equal(h.get('quality-screen').textContent,'8.8 dB');assert.equal(h.get('quality-value').textContent,'35.2 dB');
- h.get('fm-monitor').checked=false;h.get('fm-monitor').fire('change');assert.equal(h.api.params.fmMonitor,false);assert.equal(h.get('squelch').disabled,false);assert.equal(h.get('monitor').checked,false);
- h.api.params.radio='digital';h.api.updateControls();assert.equal(h.get('fm-monitor').disabled,true);h.get('fm-monitor').checked=true;h.get('fm-monitor').fire('change');assert.equal(h.api.params.fmMonitor,false);
+ const h=await harness();h.api.updateControls();assert.equal(h.get('fm-monitor').value,'auto');assert.equal(h.get('fm-monitor').disabled,false);assert.match(h.get('fm-monitor-help').textContent,/先降低试听音量/);
+ const seed=h.api.fileSeed;h.get('fm-monitor').value='open';h.get('fm-monitor').fire('change');assert.equal(h.api.params.fmMonitor,true);assert.equal(h.api.playing,false);assert.equal(h.sources.length,0);assert.equal(h.get('monitor').checked,false);assert.equal(h.api.fileSeed,seed);assert.equal(h.get('squelch').disabled,true);
+ await h.api.playFile();h.api.meter({input:.1,output:.1,signal:35,transmitting:true,carrier:false,fmRxOpen:true,fmMonitorActive:true});assert.equal(h.get('carrier-text').textContent,'持续开放');assert.match(h.get('receiver-status').textContent,/持续开放接收/);assert.equal(h.get('quality-screen').textContent,'8.8 dB');assert.equal(h.get('quality-value').textContent,'35.2 dB');
+ h.get('fm-monitor').value='auto';h.get('fm-monitor').fire('change');assert.equal(h.api.params.fmMonitor,false);assert.equal(h.get('squelch').disabled,false);assert.equal(h.get('monitor').checked,false);
+ h.api.params.radio='digital';h.api.updateControls();assert.equal(h.get('fm-monitor').disabled,true);h.get('fm-monitor').value='open';h.get('fm-monitor').fire('change');assert.equal(h.api.params.fmMonitor,false);
 });
 test('QA: near-threshold shortcut exposes C/N and preserves explicit squelch-monitor choice',async()=>{
- const h=await harness();h.api.applyRF('varying');assert.equal(h.api.params.quality,35);assert.equal(h.get('quality-value').textContent,'8.8 dB');assert.equal(h.get('quality-screen').textContent,'8.8 dB');assert.equal(h.get('fm-monitor').checked,false);
- h.get('fm-monitor').checked=true;h.get('fm-monitor').fire('change');h.api.applyRF('stable');assert.equal(h.api.params.fmMonitor,true);assert.equal(h.get('quality-value').textContent,'无噪声');
+ const h=await harness();h.api.applyRF('varying');assert.equal(h.api.params.quality,35);assert.equal(h.get('quality-value').textContent,'8.8 dB');assert.equal(h.get('quality-screen').textContent,'8.8 dB');assert.equal(h.get('fm-monitor').value,'auto');
+ h.get('fm-monitor').value='open';h.get('fm-monitor').fire('change');h.api.applyRF('stable');assert.equal(h.api.params.fmMonitor,true);assert.equal(h.get('quality-value').textContent,'无噪声');
  h.api.params.radio='digital';h.api.updateControls();assert.equal(h.get('quality-value').textContent,'100%');h.api.params.perspective='operator';h.api.updateControls();assert.equal(h.get('quality-screen').textContent,'—');
 });
 
 test('QA: receiver-monitor toggle during held PTT preserves transmission and keeps headphones off',async()=>{
  const h=await harness();h.api.switchMode('mic');await h.api.startMic();h.api.ptt(true);const processor=h.processors.at(-1);assert.equal(processor.port.lastMessage.params.tx,true);
- h.get('fm-monitor').checked=true;h.get('fm-monitor').fire('change');assert.equal(processor.port.lastMessage.params.tx,true);assert.equal(processor.port.lastMessage.params.fmMonitor,true);assert.equal(h.get('monitor').checked,false);assert.equal(h.get('ptt').classList.contains('transmitting'),true);
+ h.get('fm-monitor').value='open';h.get('fm-monitor').fire('change');assert.equal(processor.port.lastMessage.params.tx,true);assert.equal(processor.port.lastMessage.params.fmMonitor,true);assert.equal(h.get('monitor').checked,false);assert.equal(h.get('ptt').classList.contains('transmitting'),true);
  h.api.ptt(false);assert.equal(processor.port.lastMessage.params.tx,false);assert.equal(h.get('monitor').checked,false);
 });
 
@@ -177,7 +177,7 @@ test('QA: live C/N label uses the same noiseless threshold as the FM model',asyn
 });
 
 test('QA: propagation is opt-in, retains source/channel/monitor and is disabled outside analog reception',async()=>{
- const h=await harness();h.api.updateControls();assert.equal(h.get('fm-propagation').value,'static');const seed=h.api.fileSeed;h.api.applyRF('varying');h.get('fm-monitor').checked=true;h.get('fm-monitor').fire('change');
+ const h=await harness();h.api.updateControls();assert.equal(h.get('fm-propagation').value,'static');const seed=h.api.fileSeed;h.api.applyRF('varying');h.get('fm-monitor').value='open';h.get('fm-monitor').fire('change');
  h.get('fm-propagation').value='moving';h.get('fm-propagation').fire('change');assert.equal(h.api.params.fmPropagation,'moving');assert.equal(h.api.params.fmMonitor,true);assert.equal(h.api.params.quality,35);assert.equal(h.api.fileSeed,seed);assert.equal(h.api.playing,false);assert.equal(h.get('monitor').checked,false);assert.match(h.get('quality-label').textContent,/平均/);assert.match(h.get('propagation-help').textContent,/重启该段信道状态/);
  await h.api.playFile();h.api.meter({input:.1,output:.1,signal:35,transmitting:true,fmRxOpen:true,fmMonitorActive:true,fmInstantCnrDb:4.3});assert.equal(h.get('rf-meter-label').textContent,'LIVE C/N');assert.equal(h.get('quality-screen').textContent,'4.3 dB');assert.equal(h.get('channel-state').textContent,'瞬时模型 C/N：4.3 dB');
  h.get('fm-propagation').value='static';h.get('fm-propagation').fire('change');assert.equal(h.api.params.fmPropagation,'static');assert.equal(h.api.params.fmMonitor,true);assert.equal(h.get('channel-state').hidden,true);
@@ -222,4 +222,55 @@ test('QA: clearly labeled nominal demos set visible verified gain without modify
 });
 test('QA: manual gain adjustment while nominal demo loads wins over delayed demo default',async()=>{
  const pending=deferred();const h=await harness({fetchImpl:async()=>pending.promise});h.context.decodeAudioData=async()=>h.buffer();const loading=h.api.humanDemo('bdl');await tick();h.get('txInputGainDb').value=-2;h.get('txInputGainDb').fire('input');pending.resolve(response());await loading;assert.equal(h.api.params.txInputGainDb,-2);assert.match(h.get('calibration-status').textContent,/保留载入期间手动设置/);
+});
+
+
+test('receiver session stays open across keyboard PTT release, blur, rekey and RF edits without touching headphones',async()=>{
+ const h=await harness();h.api.switchMode('mic');await h.api.startMic();const p=h.processors.at(-1);
+ assert.equal(p.options.processorOptions.params.receiverActive,false);
+ h.get('fm-monitor').value='open';h.get('fm-monitor').fire('change');assert.equal(p.port.lastMessage.params.receiverActive,false);assert.equal(h.get('monitor').checked,false);
+ h.get('monitor').checked=true;h.get('monitor').fire('change');assert.equal(p.port.lastMessage.params.receiverActive,true);
+ for(const release of ['keyup','blur']){
+  h.document.fire('keydown',{code:'Space',repeat:false});assert.equal(p.port.lastMessage.params.tx,true);assert.equal(p.port.lastMessage.params.receiverActive,true);
+  (release==='blur'?h.window:h.document).fire(release,{code:'Space'});assert.equal(p.port.lastMessage.params.tx,false);assert.equal(p.port.lastMessage.params.receiverActive,true);
+ }
+ h.document.fire('keydown',{code:'Space',repeat:false});h.api.applyRF('fringe');assert.equal(p.port.lastMessage.params.tx,true);assert.equal(p.port.lastMessage.params.receiverActive,true);
+ h.get('radio').value='digital';h.get('radio').fire('change');assert.equal(p.port.lastMessage.params.tx,false);assert.equal(h.get('monitor').checked,true);
+ h.get('radio').value='analog';h.get('radio').fire('change');assert.equal(p.port.lastMessage.params.receiverActive,true);
+ h.get('monitor').checked=false;h.get('monitor').fire('change');assert.equal(p.port.lastMessage.params.receiverActive,false);assert.equal(p.disconnected,undefined);
+ h.api.ptt(true);h.get('dry').fire('click');assert.equal(p.port.lastMessage.params.tx,true);assert.equal(p.port.lastMessage.params.mix,0);assert.equal(p.port.lastMessage.params.receiverActive,false);
+});
+
+test('microphone Stop, hidden page, pagehide and source switch stop fake hardware; restart needs explicit monitoring',async()=>{
+ for(const action of ['stop','hidden','pagehide','mode']){
+  const h=await harness();let stops=0,opens=0;h.navigator.mediaDevices.getUserMedia=async()=>{opens++;return {getTracks:()=>[{stop(){stops++;},addEventListener(){}}]};};
+  h.api.switchMode('mic');await h.api.startMic();h.get('monitor').checked=true;h.get('monitor').fire('change');h.api.ptt(true);const p=h.processors.at(-1);
+  if(action==='stop')h.api.stopMic();if(action==='hidden'){h.document.hidden=true;h.document.fire('visibilitychange');}if(action==='pagehide')h.window.fire('pagehide');if(action==='mode')h.api.switchMode('file');
+  assert.equal(stops,1,action);assert.equal(h.get('monitor').checked,false);assert.equal(h.get('ptt').disabled,true);assert.equal(p.disconnected,true);
+  if(action!=='pagehide'){h.document.hidden=false;if(action==='mode')h.api.switchMode('mic');assert.equal(opens,1);await h.api.startMic();assert.equal(opens,2);assert.equal(h.get('monitor').checked,false);assert.equal(h.processors.at(-1).port.lastMessage.params.receiverActive,false);}
+ }
+});
+
+test('file natural end preserves only 350 ms receiver postroll; Stop, hide and restart cannot leave an old receiver active',async()=>{
+ const h=await harness();h.api.params.fmMonitor=true;await h.api.playFile();const first=h.processors.at(-1);h.sources.at(-1).onended();
+ assert.equal(first.port.lastMessage.params.tx,false);assert.equal(first.port.lastMessage.params.receiverActive,true);assert.equal(h.get('stop').disabled,false);const timer=h.timers.find(t=>t.ms===350&&!t.cancelled);assert.ok(timer);timer.fn();assert.equal(first.port.lastMessage.params.receiverActive,false);assert.equal(first.disconnected,true);
+ await h.api.playFile();const second=h.processors.at(-1);h.sources.at(-1).onended();const oldTimer=h.timers.filter(t=>t.ms===350&&!t.cancelled).at(-1);
+ await h.api.playFile();const third=h.processors.at(-1);oldTimer.fn();assert.equal(third.disconnected,undefined);assert.equal(third.port.lastMessage.params.receiverActive,true);assert.equal(second.disconnected,true);
+ h.get('stop').fire('click');assert.equal(third.port.lastMessage.params.receiverActive,false);assert.equal(third.disconnected,true);
+ await h.api.playFile();const fourth=h.processors.at(-1);h.document.hidden=true;h.document.fire('visibilitychange');assert.equal(fourth.disconnected,true);assert.equal(fourth.port.lastMessage.params.receiverActive,false);assert.equal(h.api.playing,false);
+});
+
+test('receiver status separates active idle open listening, automatic mute, muted monitor and snapshot telemetry',async()=>{
+ const h=await harness();h.api.switchMode('mic');await h.api.startMic();h.api.params.fmMonitor=true;h.get('monitor').checked=true;h.get('monitor').fire('change');
+ h.api.meter({input:0,output:.1,signal:35,transmitting:false,carrier:false,fmRxOpen:true,fmMonitorActive:true});assert.equal(h.get('carrier-text').textContent,'持续开放');assert.match(h.get('receiver-status').textContent,/PTT 已释放/);
+ h.api.params.fmMonitor=false;h.api.ptt(true);h.api.meter({input:.1,output:0,signal:90,transmitting:true,carrier:false,fmRxOpen:false});assert.equal(h.get('carrier-text').textContent,'自动静噪·已静音');assert.match(h.get('receiver-status').textContent,/开头可能被截去/);
+ h.get('monitor').checked=false;h.get('monitor').fire('change');h.api.meter({input:.1,output:0,signal:90,transmitting:true,fmRxOpen:false});assert.match(h.get('receiver-status').textContent,/耳机监听关闭/);
+});
+
+
+test('pending draining path never labels old operator output as live open FM',async()=>{
+ const h=await harness();h.api.switchMode('mic');await h.api.startMic();h.get('monitor').checked=true;h.get('monitor').fire('change');h.api.params.fmMonitor=true;
+ h.api.meter({input:0,output:0,signal:90,transmitting:false,fmRxOpen:false,fmMonitorActive:false,activePerspective:'operator',activeRadio:'analog'});
+ assert.equal(h.get('carrier-text').textContent,'待切换');assert.match(h.get('receiver-status').textContent,/当前通话结束后切换/);assert.doesNotMatch(h.get('receiver-status').textContent,/持续开放/);
+ h.api.params.fmPropagation='moving';h.api.ptt(true);h.api.meter({input:.1,output:.1,signal:90,transmitting:true,txDeviationPeakHz:2000,fmInstantCnrDb:12,activePerspective:'operator',activeRadio:'analog'});assert.equal(h.get('tx-deviation-value').textContent,'—');assert.match(h.get('channel-state').textContent,/无此路径的实时信道读数/);assert.equal(h.get('quality-screen').textContent,'—');
 });

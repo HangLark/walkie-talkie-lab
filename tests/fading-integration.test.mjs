@@ -8,11 +8,13 @@ const golden=JSON.parse(readFileSync(new URL('./fixtures/static-fm-b9a10ad.json'
 const sha=a=>createHash('sha256').update(new Uint8Array(a.buffer,a.byteOffset,a.byteLength)).digest('hex');
 test('static RF remains bit-exact with frozen b9a10ad when the new TX postfilter is instrumented out',()=>{
  // This is a channel-regression isolation test, not an assertion that adding
- // the new transmitter filter leaves the full application waveform unchanged.
+ // the new transmitter filter or receiver-session lifecycle leaves the full
+ // application waveform unchanged. End the session at the old 55 ms tail
+ // boundary solely to reproduce this frozen channel fixture's gate envelope.
  for(const {rate,quality,sha256} of golden.cases){
   const x=Float32Array.from({length:Math.round(rate*.08)},(_,n)=>.2*Math.sin(2*Math.PI*701*n/rate)+.05*Math.sin(2*Math.PI*2311*n/rate)),k=new RadioKernel(rate,{...DEFAULTS,quality,fmMonitor:true,tailMs:55},918273),out=new Float32Array(x.length+Math.round(rate*.35));
   k.fm.txPostLimit.tick=x=>x;
-  for(let n=0;n<out.length;n++){if(n===x.length)k.setParams({tx:false});out[n]=k.processSample(x[n]||0);}
+  for(let n=0;n<out.length;n++){if(n===x.length)k.setParams({tx:false});if(n===x.length+Math.round(rate*.024)+Math.ceil(rate*.02)+Math.round(rate*.055))k.setParams({receiverActive:false});out[n]=k.processSample(x[n]||0);}
   assert.equal(sha(out),sha256,`${rate}/${quality}`);
  }
 });
@@ -30,7 +32,7 @@ test('mean CNR stays fixed and instantaneous CNR follows pre-noise channel power
 });
 test('optional moving model cannot affect operator/digital routing or turn stopped playback into noise',()=>{
  const x=Float32Array.from({length:4000},(_,n)=>.15*Math.sin(n*.17));for(const params of [{perspective:'operator'},{radio:'digital'}])assert.deepEqual(renderRadio(x,48000,{...params,fmPropagation:'static'},19),renderRadio(x,48000,{...params,fmPropagation:'moving'},19));
- const k=new RadioKernel(48000,{fmPropagation:'moving',fmMonitor:true,quality:20,tx:false});assert.ok(k.process(new Float32Array(8000)).every(x=>x===0));
+ const k=new RadioKernel(48000,{fmPropagation:'moving',fmMonitor:true,quality:20,tx:false,receiverActive:false});assert.ok(k.process(new Float32Array(8000)).every(x=>x===0));
 });
 
 test('noiseless strong FM remains nearly transparent under slow IQ motion rather than audio fading',()=>{

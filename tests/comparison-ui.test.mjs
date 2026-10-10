@@ -64,7 +64,7 @@ test('voice and RF profile changes refresh matched snapshots at the same positio
 });
 
 test('receiver monitor changes invalidate matched snapshots without autoplay and preserve source seed',async()=>{
- const h=await harness();h.api.prepareMatch();const seed=h.workers.at(-1).sent.seed;h.workers.at(-1).onmessage(readyData());h.get('fm-monitor').checked=true;h.get('fm-monitor').fire('change');for(const f of h.timers.splice(0))f?.();const next=h.workers.at(-1);assert.equal(next.sent.params.fmMonitor,true);assert.equal(next.sent.seed,seed);next.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));assert.equal(h.api.playing,false);
+ const h=await harness();h.api.prepareMatch();const seed=h.workers.at(-1).sent.seed;h.workers.at(-1).onmessage(readyData());h.get('fm-monitor').value='open';h.get('fm-monitor').fire('change');for(const f of h.timers.splice(0))f?.();const next=h.workers.at(-1);assert.equal(next.sent.params.fmMonitor,true);assert.equal(next.sent.seed,seed);next.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));assert.equal(h.api.playing,false);
 });
 
 test('propagation changes refresh matched snapshots at retained position with the same seed',async()=>{
@@ -74,4 +74,10 @@ test('propagation changes refresh matched snapshots at retained position with th
 
 test('explicit input calibration refreshes matched render but never restarts paused playback',async()=>{
  const h=await harness();h.api.prepareMatch();const seed=h.workers.at(-1).sent.seed;h.workers.at(-1).onmessage(readyData());h.api.calibrateInput();const job=h.workers.at(-1);job.onmessage({data:{proposal:{gainDb:12.88,levelDbov:-20,bounded:false}}});for(const f of h.timers.splice(0))f?.();const rendered=h.workers.at(-1);assert.equal(rendered.sent.params.txInputGainDb,12.88);assert.equal(rendered.sent.seed,seed);rendered.onmessage(readyData());await new Promise(resolve=>setImmediate(resolve));assert.equal(h.api.playing,false);
+});
+
+
+test('matched natural completion does not add a second receiver postroll',async()=>{
+ const h=await harness();h.api.prepareMatch();h.workers.at(-1).onmessage(readyData());await h.api.playFile();h.sources.at(-1).onended();
+ assert.equal(h.api.playing,false);assert.equal(h.get('stop').disabled,true);assert.equal(h.get('status-text').textContent,'匹配快照播放结束（已含 350 ms 收尾）。');
 });

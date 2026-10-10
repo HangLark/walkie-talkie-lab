@@ -1,6 +1,6 @@
-import { AnalogFM, qualityToCnrDb } from './analog-fm.js?v=fm-transmitter-v1';
+import { AnalogFM, qualityToCnrDb } from './analog-fm.js?v=fm-receiver-session-v2';
 /** Shared, allocation-free per-sample approximate radio audio kernel. Not a hardware/codec emulator. */
-export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 0, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 0, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, fmMonitor: false, fmPropagation: 'static', txInputGainDb: 0, txMicAgc: false, vox: false, gateDry: false, voxThreshold: -42, tx: true });
+export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 0, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 0, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, fmMonitor: false, receiverActive: true, fmPropagation: 'static', txInputGainDb: 0, txMicAgc: false, vox: false, gateDry: false, voxThreshold: -42, tx: true });
 // Legacy stress-test configurations; not user-facing device models or calibrated presets.
 export const PRESETS = Object.freeze({
   patrol: { name: '巡逻频道', description: '模拟接收端：清晰窄带语音、开台声与可调静噪尾音', ...DEFAULTS },
@@ -31,7 +31,7 @@ const PERMIT_FREQUENCIES = [910, 1210, 1510];
 export function sanitizeParams(params = {}, base = DEFAULTS) {
   const p = { ...base };
   for (const [key, range] of Object.entries(ranges)) if (Number.isFinite(params[key])) p[key] = clamp(params[key], ...range);
-  for (const key of ['vox', 'tx', 'gateDry', 'fmMonitor', 'txMicAgc']) if (typeof params[key] === 'boolean') p[key] = params[key];
+  for (const key of ['vox', 'tx', 'gateDry', 'fmMonitor', 'receiverActive', 'txMicAgc']) if (typeof params[key] === 'boolean') p[key] = params[key];
   for (const [key, choices] of Object.entries({ perspective: ['receiver', 'operator'], radio: ['analog', 'digital'], permit: ['off', 'single', 'triple'], fmPropagation: ['static', 'moving'] })) if (choices.includes(params[key])) p[key] = params[key];
   return p;
 }
@@ -170,6 +170,17 @@ export class RadioKernel {
     if (10*Math.log10(this.rms + 1e-12) > p.voxThreshold) this.voxHold = this.rate * .25;
     else this.voxHold = Math.max(0, this.voxHold - 1);
     const transmit = t.tx && (!t.vox || this.voxHold > 0);
+    // A continuously listening receiver follows path selection even without a
+    // new PTT. Finish the old burst's queue/release first, then fade its speaker
+    // closed before adopting the latest selection. A superseded selection is
+    // never queued, and this idle transition does not manufacture a TX event.
+    const idleComplete = !transmit && !this.wasTransmit && (this.releaseAge < 0 || this.releaseAge >= this.delaySamples + (analogReceiver ? this.fmDrainSamples : 0) + this.releaseLength);
+    this.idleRoutePending = idleComplete && (this.burstPerspective !== t.perspective || this.burstRadio !== t.radio);
+    if (this.idleRoutePending && this.gate < 1e-5) {
+      this.burstPerspective = t.perspective; this.burstRadio = t.radio; this.burstPermit = t.permit;
+      this.txAge = this.releaseAge = -1; this.releaseLength = this.delaySamples = 0;
+      this.gate = this.fade = 0; this.idleRoutePending = false;
+    }
     // Snapshot cue identity at key-down. Repeated params/VOX word pauses cannot retrigger it.
     if (transmit && !this.wasTransmit) {
       const pendingVoice = this.releaseAge >= 0 && this.releaseAge < this.delaySamples;
@@ -192,9 +203,12 @@ export class RadioKernel {
     const draining = !transmit && this.releaseAge >= 0 && this.releaseAge < this.delaySamples + (analogReceiver ? this.fmDrainSamples : 0);
     const local = this.burstPerspective === 'operator';
     const receiving = (transmit || draining) && (local || this.carrier);
-    const gateTarget = receiving ? 1 : 0;
+    const gateTarget = receiving && !this.idleRoutePending ? 1 : 0;
     if (!analogReceiver) this.gate += (gateTarget - this.gate) * (1 - Math.exp(-1 / (this.rate * (gateTarget ? .003 : .006))));
-    // Delay only wet voice, preserving the first syllable behind the opening cue.
+    // Fixed application voice delay, not a guarantee of automatic RX acquisition.
+    // A warm idle detector may take longer than 24 ms to open; immediate speech
+    // can be clipped in automatic mode. Never reset its history or wait for the
+    // remote receiver to acquire before transmitting captured speech.
     const read = (this.delayWrite - this.delaySamples + this.delayBuffer.length) % this.delayBuffer.length;
     this.delayBuffer[this.delayWrite] = transmit ? x : 0;
     x = this.delayBuffer[read]; this.delayWrite = (this.delayWrite+1) % this.delayBuffer.length;
@@ -218,11 +232,15 @@ export class RadioKernel {
       const tailAge = this.releaseAge - this.delaySamples - this.fmDrainSamples;
       const tail = !transmit && !draining && tailAge >= 0 && tailAge < this.releaseLength;
       const preclose = !transmit && this.releaseLength === 0 && this.releaseAge >= this.delaySamples + this.fmDrainSamples - Math.ceil(this.rate*.01);
-      this.fmMonitorActive = Boolean(t.fmMonitor);
-      const open = (transmit || draining || tail) && (this.fmMonitorActive || this.carrier) && !preclose;
+      // Listening-session power is independent of the remote carrier/PTT. Open
+      // squelch passes the actual carrier-off FM noise for the entire session;
+      // the optional automatic tail cap is not a receiver power switch.
+      this.fmMonitorActive = Boolean(t.fmMonitor && t.receiverActive);
+      const automaticOpen = (transmit || draining || tail) && this.carrier && !preclose;
+      const open = t.receiverActive && !this.idleRoutePending && (this.fmMonitorActive || automaticOpen);
       this.fmRxOpen = Boolean(open);
       this.gate += ((open ? 1 : 0)-this.gate) * (1-Math.exp(-1/(this.rate*(open?(this.fmMonitorActive?.016:.003):preclose?.001:.003))));
-      if (!transmit && !draining && this.releaseLength === 0) this.gate = 0;
+      if (!this.fmMonitorActive && !transmit && !draining && this.releaseLength === 0) this.gate = 0;
       this.fade = this.gate;
     } else {
     this.fmRxOpen = false; this.fmMonitorActive = false;
@@ -284,8 +302,10 @@ export class RadioKernel {
   }
   process(input, output = new Float32Array(input.length)) { for (let i=0; i<input.length; i++) output[i] = this.processSample(input[i]); return output; }
 }
+// A finite recording owns an active receiver session for its complete window.
+// The 350 ms postroll is a capture boundary, not a physical open-squelch tail.
 export function renderRadio(input, sampleRate, params, seed) {
-  const kernel = new RadioKernel(sampleRate, params, seed), result = new Float32Array(input.length + Math.round(sampleRate*.35));
+  const kernel = new RadioKernel(sampleRate, { ...params, receiverActive: true }, seed), result = new Float32Array(input.length + Math.round(sampleRate*.35));
   for (let i=0; i<result.length; i++) { if (i === input.length) kernel.setParams({ tx: false }); result[i] = kernel.processSample(i<input.length ? input[i] : 0); }
   return result;
 }
