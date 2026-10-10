@@ -1,3 +1,21 @@
+# Automatic squelch release freeze · 2026-10-10
+
+- Removed the transmitter-informed 6 ms release shortcut; the existing receiver detector hold and selected tail cap remain in force. No detector, FM or RF-noise coefficients changed.
+- Rapid re-key during uninterrupted RF drain preserves acquisition; a genuine RF interruption or receiver-path change still reacquires. Ordinary first-key onset is unchanged, including possible immediate-speech clipping. No synthetic opening noise or extra voice delay was introduced.
+- The bypass rollback and previous finite-window/per-playback shutdown safeguards remain in place. Runtime module graph uses `fm-auto-squelch-v4`.
+- Final aggregate verification is recorded in the release manifest; physical headphone listening and hardware comparison remain unperformed.
+
+---
+
+# Scoped detector-bypass rollback · 2026-10-10
+
+- Removed the unsolicited continuous-idle receiver semantics. Detector bypass is a bounded call-audition option, labeled “关闭自动静噪（仅通话试听）”; automatic squelch remains the default.
+- The UI distinguishes active audition, finite release and silent idle. Bypass disables the detector threshold only; its release-tail cap remains available. Merely enabling headphones does not request idle noise.
+- Existing per-session playback gains, 10 ms finite-window endpoint protection, 350 ms file postroll, late-callback guards and Stop/source/page lifecycle safeguards are retained.
+- Focused fake-DOM/UI checks: 54 tests passed. These verify labels, controls and lifecycle parameter messages. An actual-kernel test driven by the microphone handlers verifies silent idle with headphones enabled, two calls with bounded release, and monitor-off silence; automatic-squelch repair has separate DSP checks. No physical microphone/headphone or hardware-radio validation is implied.
+
+---
+
 # Shutdown boundary regression checks · 2026-10-10
 
 - Reproduced before editing: 16 session/mode-close tests showed a one-sample gate collapse before the first PTT or after a zero-tail PTT; four finite-recording tests ended at a nonzero sample. The new tests inspect every closing gate step, not just a late silence sample.
@@ -10,11 +28,11 @@
 
 ---
 
-# Receiver-session correction · 2026-10-10
+# Historical receiver-session change · 2026-10-10 (continuous-idle behavior superseded)
 
 Work remained in the cloud workspace, restored from public source commit c3bf59fc7a194794a8d6de2f070600445937b1cd. No personal microphone or user computer was accessed; no publication is implied by this report.
 
-- Replaced the ambiguous RF checkbox with explicit automatic/open receiver selection. Open listening is independent of PTT while an intentional session is active. Headphone monitoring remains a separate opt-in, OFF on every microphone restart.
+- This earlier change introduced continuous open-session idle noise. That unrequested behavior is superseded by the scoped rollback above. Headphone monitoring remains a separate opt-in, OFF on every microphone restart.
 - Fake DOM/audio tests exercise actual app handlers for keyboard PTT, release, blur, re-key, RF/path changes, monitor off, microphone Stop/restart, source switch, hidden/pagehide, 350 ms natural-file drain, explicit Stop and stale cleanup callbacks. They require no device permissions.
 - The fixed 24 ms voice buffer is unchanged. Automatic acquisition can suppress immediate speech onset; no adaptive queue, mandatory start noise or hardware acquisition-time guarantee was added.
 - File/export/matched playback remains a finite source-plus-350 ms receiver window with no extra preroll. Explicit pause/Stop and hidden-page cleanup stop listening immediately. Matched snapshots are not live receiver telemetry.

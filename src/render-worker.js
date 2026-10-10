@@ -1,5 +1,5 @@
-import { applyOutputWindowFade } from './output-boundary.js?v=fm-output-boundary-v3';
-import { RadioKernel } from './dsp.js?v=fm-output-boundary-v3';
+import { applyOutputWindowFade } from './output-boundary.js?v=fm-auto-squelch-v4';
+import { RadioKernel } from './dsp.js?v=fm-auto-squelch-v4';
 import { encodeWav } from './wav.js';
 self.onmessage = ({ data }) => {
   try {

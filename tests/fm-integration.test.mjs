@@ -14,7 +14,7 @@ test('zero-tail precloses before noisy RF removal and enabled tail has a soft bo
  for(const rate of [8000,16000,44100,48000,192000])for(const tailMs of [0,110]){
   const k=new RadioKernel(rate,{quality:90,tailMs});k.process(silence(rate/2));k.setParams({tx:false});const y=k.process(silence(Math.round(rate*.35)));
   if(!tailMs){assert.ok(peak(y)<.03);assert.ok(peak(y.subarray(Math.ceil(rate*.044)))<1e-10);}
-  else {assert.ok(peak(y)<=.768001);assert.ok(rms(y)<.15);assert.ok(peak(y.subarray(Math.ceil(rate*.15)))<1e-8);}
+  else {assert.ok(peak(y)<=.768001);assert.ok(rms(y)<.4);assert.ok(peak(y.subarray(Math.ceil(rate*.23)))<1e-8);}
  }
 });
 test('weak channel acquisition cannot blast initial noise before detector settles',()=>{
@@ -44,40 +44,42 @@ test('open-squelch toggle is smoothed, does not key transmitter, and export rema
  const k=new RadioKernel(48000,{quality:20,output:40,tx:true},82);k.process(silence(12000));const before=k.burstCount;k.setParams({fmMonitor:true});
  let largestStep=0,last=k.gate;for(let n=0;n<4800;n++){k.processSample(0);largestStep=Math.max(largestStep,Math.abs(k.gate-last));last=k.gate;}
  assert.ok(largestStep<.0014);assert.equal(k.burstCount,before);assert.ok(k.gate>.99);
- k.setParams({tx:false});const tail=k.process(silence(16800));assert.ok(rms(tail.subarray(14400))>.05);assert.equal(k.fmRxOpen,true);assert.equal(k.wasTransmit,false);
+ k.setParams({tx:false});const tail=k.process(silence(16800));assert.ok(peak(tail.subarray(14400))<1e-10);assert.equal(k.fmRxOpen,false);assert.equal(k.wasTransmit,false);
  k.setParams({fmMonitor:false});k.process(silence(12000));assert.equal(k.fmMonitorActive,false);assert.equal(k.wasTransmit,false);
 });
 test('monitor respects receiver-session stop and does not affect operator or digital routing',()=>{
  const idle=new RadioKernel(48000,{quality:0,fmMonitor:true,tx:false,receiverActive:false});assert.equal(peak(idle.process(silence(12000))),0);
  for(const params of [{perspective:'operator'},{radio:'digital'}]){const x=Float32Array.from({length:8000},(_,n)=>.1*Math.sin(n*.21));assert.deepEqual(new RadioKernel(48000,{...params,quality:20,fmMonitor:false},23).process(x),new RadioKernel(48000,{...params,quality:20,fmMonitor:true},23).process(x));}
- const k=new RadioKernel(48000,{quality:30,fmMonitor:true,tailMs:0});k.process(silence(12000));k.setParams({tx:false});assert.ok(rms(k.process(silence(16800)).subarray(12000))>.05);
+ const k=new RadioKernel(48000,{quality:30,fmMonitor:true,tailMs:0});k.process(silence(12000));k.setParams({tx:false});assert.ok(peak(k.process(silence(16800)).subarray(12000))<1e-10);
  k.setParams({receiverActive:false});assert.ok(peak(k.process(silence(12000)).subarray(6000))<1e-10);assert.equal(k.fmRxOpen,false);assert.equal(k.fmMonitorActive,false);
 });
 
-test('open receiver hisses before PTT and remains open across release and re-key independent of tail setting',()=>{
+test('detector bypass is silent before PTT and after its bounded call tail',()=>{
  for(const rate of [8000,44100,48000,192000])for(const tailMs of [0,110,200]){
   const k=new RadioKernel(rate,{quality:90,fmMonitor:true,receiverActive:true,tx:false,tailMs},42);
-  assert.ok(rms(k.process(silence(Math.round(rate*.5))).subarray(Math.round(rate*.3)))>.05);
-  assert.equal(k.wasTransmit,false);assert.equal(k.burstCount,0);assert.equal(k.fmRxOpen,true);assert.ok(k.gate>.999999);
+  assert.equal(peak(k.process(silence(Math.round(rate*.5)))),0);
+  assert.equal(k.burstCount,0);assert.equal(k.fmRxOpen,false);
   for(let burst=0;burst<2;burst++){
-   k.setParams({tx:true});for(let n=0;n<rate*.08;n++){k.processSample(.1*Math.sin(n*.17));assert.equal(k.fmRxOpen,true);assert.ok(k.gate>.999999,'PTT must not retrigger the speaker opening fade');}
-   k.setParams({tx:false});const release=k.process(silence(Math.round(rate*.5)));assert.ok(rms(release.subarray(Math.round(rate*.3)))>.05);assert.equal(k.fmRxOpen,true);assert.ok(k.gate>.999999);
+   k.setParams({tx:true});k.process(silence(Math.round(rate*.08)));assert.equal(k.fmRxOpen,true);
+   k.setParams({tx:false});const release=k.process(silence(Math.round(rate*.5)));
+   if(tailMs)assert.ok(rms(release.subarray(Math.ceil(rate*.05),Math.floor(rate*(.044+tailMs/1000))))>.03);
+   assert.ok(peak(release.subarray(Math.round(rate*.35)))<1e-10);assert.equal(k.fmRxOpen,false);
   }
   assert.equal(k.burstCount,2);assert.equal(k.endCount,2);
  }
 });
 
-test('starting/stopping listening fades the speaker without keying RF or resetting detector history',()=>{
+test('session permission changes do not start idle noise or reset the detector',()=>{
  const k=new RadioKernel(48000,{quality:35,tx:false,fmMonitor:true,receiverActive:false},82);assert.equal(peak(k.process(silence(24000))),0);const power=k.fm.detectorPower;
- k.setParams({receiverActive:true});let largestStep=0,last=k.gate;for(let n=0;n<4800;n++){k.processSample(0);largestStep=Math.max(largestStep,Math.abs(k.gate-last));last=k.gate;if(n===0)assert.ok(k.fm.detectorPower>power*.9);}
- assert.ok(largestStep<.0014);assert.ok(k.gate>.99);assert.equal(k.burstCount,0);assert.equal(k.wasTransmit,false);
+ k.setParams({receiverActive:true});assert.equal(k.processSample(0),0);assert.ok(k.fm.detectorPower>power*.9);
+ assert.equal(peak(k.process(silence(4800))),0);assert.equal(k.burstCount,0);assert.equal(k.wasTransmit,false);
+ k.setParams({tx:true});k.process(silence(4800));assert.ok(k.gate>.99);
  k.setParams({receiverActive:false});const stop=k.process(silence(12000));assert.ok(peak(stop.subarray(6000))<1e-10);assert.equal(k.fmRxOpen,false);
- k.setParams({receiverActive:true});assert.ok(rms(k.process(silence(12000)).subarray(6000))>.05);assert.equal(k.burstCount,0);
 });
 
 test('open receiver has no invented idle hiss or start burst in the noiseless limit',()=>{
  const k=new RadioKernel(48000,{quality:100,tx:false,fmMonitor:true,tailMs:0});assert.equal(peak(k.process(silence(24000))),0);
- k.setParams({tx:true});assert.equal(peak(k.process(silence(4800))),0);k.setParams({tx:false});assert.equal(peak(k.process(silence(24000))),0);assert.equal(k.fmRxOpen,true);
+ k.setParams({tx:true});assert.equal(peak(k.process(silence(4800))),0);k.setParams({tx:false});assert.equal(peak(k.process(silence(24000))),0);assert.equal(k.fmRxOpen,false);
 });
 
 test('automatic acquisition retains idle detector history and can outlast the fixed voice delay',()=>{
@@ -92,10 +94,10 @@ test('automatic acquisition retains idle detector history and can outlast the fi
  }
 });
 
-test('finite open-squelch recording includes its full 350 ms capture window and bounded idle noise',()=>{
+test('finite detector-bypass recording retains 350 ms capture window and quiet final idle',()=>{
  for(const rate of [8000,44100,48000]){
   const input=silence(Math.round(rate*.1)),params={quality:90,fmMonitor:true,receiverActive:false,tailMs:0};
-  const out=renderRadio(input,rate,params,72);assert.equal(out.length,input.length+Math.round(rate*.35));assert.ok(rms(out.subarray(out.length-Math.round(rate*.05)))>.05);
+  const out=renderRadio(input,rate,params,72);assert.equal(out.length,input.length+Math.round(rate*.35));assert.ok(peak(out.subarray(out.length-Math.round(rate*.05)))<1e-10);
   assert.ok(out.every(x=>Number.isFinite(x)&&Math.abs(x)<.98));
   const k=new RadioKernel(rate,{...params,receiverActive:true},72),actual=new Float32Array(out.length);
   for(let n=0;n<actual.length;n++){if(n===input.length)k.setParams({tx:false});actual[n]=k.processSample(input[n]||0);}assert.deepEqual(out,applyOutputWindowFade(actual,rate));
@@ -110,9 +112,9 @@ test('receiver power affects wet analog listening but never changes raw A or tra
 
 test('idle path changes follow the latest selection without requiring or inventing a PTT',()=>{
  for(const target of [{perspective:'operator',radio:'digital'},{perspective:'receiver',radio:'digital'}]){
-  const k=new RadioKernel(48000,{quality:90,fmMonitor:true,tx:false});assert.ok(rms(k.process(silence(12000)).subarray(6000))>.05);
+  const k=new RadioKernel(48000,{quality:90,fmMonitor:true,tx:false});assert.equal(peak(k.process(silence(12000)).subarray(6000)),0);
   k.setParams(target);const closing=k.process(silence(12000));assert.ok(peak(closing.subarray(6000))<1e-10);assert.equal(k.burstPerspective,target.perspective);assert.equal(k.burstRadio,target.radio);assert.equal(k.fmRxOpen,false);assert.equal(k.burstCount,0);
-  k.setParams({perspective:'receiver',radio:'analog'});assert.ok(rms(k.process(silence(12000)).subarray(6000))>.05);assert.equal(k.fmRxOpen,true);assert.equal(k.wasTransmit,false);assert.equal(k.burstCount,0);
+  k.setParams({perspective:'receiver',radio:'analog'});assert.equal(peak(k.process(silence(12000)).subarray(6000)),0);assert.equal(k.fmRxOpen,false);assert.equal(k.wasTransmit,false);assert.equal(k.burstCount,0);
  }
 });
 
@@ -120,7 +122,61 @@ test('idle transition preserves an active burst and cancels or supersedes pendin
  const a=new RadioKernel(48000,{quality:90,fmMonitor:true},24),b=new RadioKernel(48000,{quality:90,fmMonitor:true},24),voice=Float32Array.from({length:6000},(_,n)=>.1*Math.sin(n*.13));a.process(voice);b.process(voice);
  a.setParams({radio:'digital'});assert.deepEqual(a.process(voice),b.process(voice));assert.equal(a.burstRadio,'analog');
  a.setParams({tx:false});b.setParams({tx:false});assert.deepEqual(a.process(silence(7200)),b.process(silence(7200)));assert.equal(a.burstRadio,'analog');
- a.process(silence(1000));assert.equal(a.idleRoutePending,true);a.setParams({radio:'analog'});a.process(silence(6000));assert.equal(a.burstRadio,'analog');assert.equal(a.fmRxOpen,true);assert.ok(a.gate>.99);
+ a.process(silence(1000));a.setParams({radio:'analog'});a.process(silence(6000));assert.equal(a.burstRadio,'analog');assert.equal(a.fmRxOpen,false);assert.ok(a.gate<1e-5);
  a.setParams({radio:'digital'});a.process(silence(100));a.setParams({perspective:'operator',radio:'analog'});a.process(silence(6000));assert.equal(a.burstPerspective,'operator');assert.equal(a.burstRadio,'analog');assert.equal(a.burstCount,1);assert.equal(a.endCount,1);
  a.setParams({receiverActive:false,perspective:'receiver',radio:'analog'});assert.equal(peak(a.process(silence(12000)).subarray(6000)),0);assert.equal(a.fmRxOpen,false);assert.equal(a.burstCount,1);
+});
+
+test('automatic RF-loss noise receives the same detector hold as on-air noise, bounded by tailMs',()=>{
+ for(const rate of [8000,16000,44100,48000,192000])for(const tailMs of [110,200]){
+  const k=new RadioKernel(rate,{quality:90,tailMs},42);k.process(silence(Math.round(rate*.3)));assert.equal(k.carrier,true);
+  k.setParams({tx:false});let firstBad=-1,closed=-1;
+  const threshold=1800*Math.exp(-k.p.squelch/33);
+  for(let n=0;n<Math.round(rate*.35);n++){
+   k.processSample(0);
+   if(firstBad<0&&k.fm.discriminatorNoiseHz>threshold)firstBad=n;
+   if(closed<0&&!k.fmRxOpen)closed=n;
+  }
+  assert.ok(firstBad>=Math.floor(rate*.044));
+  const expected=tailMs===110?Math.round(rate*.044)+Math.round(rate*.11):firstBad+Math.ceil(rate*.12)-1;
+  assert.ok(Math.abs(closed-expected)<=2,`${rate}/${tailMs}: ${closed}, expected ${expected}`);
+  assert.equal(k.fmRxOpen,false);assert.ok(k.gate<1e-10);
+ }
+});
+
+test('RF evidence and onset are unchanged when only release-tail cap changes',()=>{
+ for(const quality of [100,90,35,30]){
+  const a=new RadioKernel(48000,{tx:false,quality,tailMs:110},42),b=new RadioKernel(48000,{tx:false,quality,tailMs:200},42);
+  for(let n=0;n<24000;n++)assert.equal(a.processSample(0),b.processSample(0));
+  a.setParams({tx:true});b.setParams({tx:true});
+  for(let n=0;n<14400;n++){const input=n<960?.12*Math.sin(n*.13):0;assert.equal(a.processSample(input),b.processSample(input));}
+  a.setParams({tx:false});b.setParams({tx:false});
+  for(let n=0;n<16800;n++){a.processSample(0);b.processSample(0);assert.equal(a.fm.discriminatorHz,b.fm.discriminatorHz);assert.equal(a.fm.detectorPower,b.fm.detectorPower);assert.equal(a.carrier,b.carrier);}
+ }
+});
+
+test('rapid automatic re-key preserves an uninterrupted RF carrier separately from the voice queue',()=>{
+ for(const rate of [8000,44100,48000,192000])for(const quality of [100,90,30])for(const gapMs of [23,24,43,44]){
+  const k=new RadioKernel(rate,{quality,tailMs:110},42);k.process(silence(Math.round(rate*.2)));
+  k.setParams({tx:false});k.process(silence(Math.round(rate*gapMs/1000)));
+  const before={gate:k.gate,carrier:k.carrier,power:k.fm.detectorPower,acquire:k.fmAcquire};assert.equal(k.fmCarrierActive,true);
+  k.setParams({tx:true});k.processSample(0);
+  assert.equal(k.fmAcquire,Math.max(0,before.acquire-1),`${rate}/${quality}/${gapMs}: no new acquisition while RF is continuous`);
+  assert.equal(k.carrier,before.carrier);
+  if(quality>=90)assert.ok(k.gate>.999999);else assert.equal(k.fmRxOpen,false);
+ }
+});
+
+test('re-key preserves a still-pending acquisition and genuinely new RF restarts it',()=>{
+ for(const quality of [100,90,30]){
+  const k=new RadioKernel(48000,{quality},42);k.process(silence(240));k.setParams({tx:false});k.process(silence(240));
+  const pending=k.fmAcquire;assert.ok(pending>0);k.setParams({tx:true});k.processSample(0);assert.equal(k.fmAcquire,pending-1);assert.equal(k.fmRxOpen,false);
+  k.process(silence(9600));k.setParams({tx:false});k.process(silence(2113));assert.equal(k.fmCarrierActive,false);
+  k.setParams({tx:true});k.processSample(0);assert.equal(k.fmAcquire,767);assert.equal(k.fmRxOpen,false);
+ }
+});
+
+test('switching receiver algorithms during queued re-key does not inherit acquired carrier',()=>{
+ const k=new RadioKernel(48000,{radio:'digital',quality:90},42);k.process(silence(9600));k.setParams({tx:false});k.process(silence(240));
+ k.setParams({tx:true,radio:'analog'});k.processSample(0);assert.equal(k.fmAcquire,767);assert.equal(k.carrier,false);assert.equal(k.fmRxOpen,false);
 });

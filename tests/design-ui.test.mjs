@@ -93,3 +93,10 @@ test('voice, transmission, listening position, RF and cues remain clearly separa
  for(const id of ['permit','cueLevel','tailMs','cue-help'])assert.ok(cues.includes(`id="${id}"`));
  assert.match(html,/恢复语音基线/);
 });
+
+
+test('detector bypass is labeled as bounded call audition, never continuous idle listening', () => {
+  assert.match(html, /<option value="auto">自动静噪<\/option>/);
+  assert.match(html, /<option value="open">关闭自动静噪（仅通话试听）<\/option>/);
+  assert.doesNotMatch(html, /持续开放/);
+});

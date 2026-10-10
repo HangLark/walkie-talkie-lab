@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
 import { OUTPUT_FADE_SECONDS, outputFadeSamples } from '../src/output-boundary.js';
-import {DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel} from '../src/dsp.js';
+import {RadioKernel,DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel} from '../src/dsp.js';
 async function harness({cryptoAvailable=true,fetchImpl}={}){
  let entropy=100;
  const elements=new Map(),workers=[],sources=[],processors=[],downloads=[],timers=[],gains=[];
@@ -156,8 +156,8 @@ test('QA: engine requests interactive 48 kHz and discloses actual fallback rate'
 
 test('QA: receiver open-squelch is explicit, reversible and never starts audio or microphone monitoring',async()=>{
  const h=await harness();h.api.updateControls();assert.equal(h.get('fm-monitor').value,'auto');assert.equal(h.get('fm-monitor').disabled,false);assert.match(h.get('fm-monitor-help').textContent,/先降低试听音量/);
- const seed=h.api.fileSeed;h.get('fm-monitor').value='open';h.get('fm-monitor').fire('change');assert.equal(h.api.params.fmMonitor,true);assert.equal(h.api.playing,false);assert.equal(h.sources.length,0);assert.equal(h.get('monitor').checked,false);assert.equal(h.api.fileSeed,seed);assert.equal(h.get('squelch').disabled,true);
- await h.api.playFile();h.api.meter({input:.1,output:.1,signal:35,transmitting:true,carrier:false,fmRxOpen:true,fmMonitorActive:true});assert.equal(h.get('carrier-text').textContent,'持续开放');assert.match(h.get('receiver-status').textContent,/持续开放接收/);assert.equal(h.get('quality-screen').textContent,'8.8 dB');assert.equal(h.get('quality-value').textContent,'35.2 dB');
+ const seed=h.api.fileSeed;h.get('fm-monitor').value='open';h.get('fm-monitor').fire('change');assert.equal(h.api.params.fmMonitor,true);assert.equal(h.api.playing,false);assert.equal(h.sources.length,0);assert.equal(h.get('monitor').checked,false);assert.equal(h.api.fileSeed,seed);assert.equal(h.get('squelch').disabled,true);assert.equal(h.get('tailMs').disabled,false);
+ await h.api.playFile();h.api.meter({input:.1,output:.1,signal:35,transmitting:true,carrier:false,fmRxOpen:true,fmMonitorActive:true});assert.equal(h.get('carrier-text').textContent,'静噪关闭·试听');assert.match(h.get('receiver-status').textContent,/通话试听/);assert.equal(h.get('quality-screen').textContent,'8.8 dB');assert.equal(h.get('quality-value').textContent,'35.2 dB');
  h.get('fm-monitor').value='auto';h.get('fm-monitor').fire('change');assert.equal(h.api.params.fmMonitor,false);assert.equal(h.get('squelch').disabled,false);assert.equal(h.get('monitor').checked,false);
  h.api.params.radio='digital';h.api.updateControls();assert.equal(h.get('fm-monitor').disabled,true);h.get('fm-monitor').value='open';h.get('fm-monitor').fire('change');assert.equal(h.api.params.fmMonitor,false);
 });
@@ -226,7 +226,7 @@ test('QA: manual gain adjustment while nominal demo loads wins over delayed demo
 });
 
 
-test('receiver session stays open across keyboard PTT release, blur, rekey and RF edits without touching headphones',async()=>{
+test('receiver output permission survives PTT release without enabling headphones or implying idle audio',async()=>{
  const h=await harness();h.api.switchMode('mic');await h.api.startMic();const p=h.processors.at(-1);
  assert.equal(p.options.processorOptions.params.receiverActive,false);
  h.get('fm-monitor').value='open';h.get('fm-monitor').fire('change');assert.equal(p.port.lastMessage.params.receiverActive,false);assert.equal(h.get('monitor').checked,false);
@@ -301,9 +301,10 @@ test('looping has no end fade and disabling loop schedules the actual current cy
  h.get('loop').checked=false;h.get('loop').fire('change');assert.equal(gain.events.at(-1)[2],(30*48000+16800-1)/48000);
 });
 
-test('receiver status separates active idle open listening, automatic mute, muted monitor and snapshot telemetry',async()=>{
+test('receiver status separates bounded bypass tail, silent idle and automatic mute',async()=>{
  const h=await harness();h.api.switchMode('mic');await h.api.startMic();h.api.params.fmMonitor=true;h.get('monitor').checked=true;h.get('monitor').fire('change');
- h.api.meter({input:0,output:.1,signal:35,transmitting:false,carrier:false,fmRxOpen:true,fmMonitorActive:true});assert.equal(h.get('carrier-text').textContent,'持续开放');assert.match(h.get('receiver-status').textContent,/PTT 已释放/);
+ h.api.meter({input:0,output:.1,signal:35,transmitting:false,carrier:false,fmRxOpen:true,fmMonitorActive:true});assert.equal(h.get('carrier-text').textContent,'静噪关闭·试听');assert.match(h.get('receiver-status').textContent,/PTT 已释放/);
+ h.api.meter({input:0,output:0,signal:35,transmitting:false,carrier:false,fmRxOpen:false,fmMonitorActive:false});assert.equal(h.get('carrier-text').textContent,'待机');assert.match(h.get('receiver-status').textContent,/未发射时保持安静/);
  h.api.params.fmMonitor=false;h.api.ptt(true);h.api.meter({input:.1,output:0,signal:90,transmitting:true,carrier:false,fmRxOpen:false});assert.equal(h.get('carrier-text').textContent,'自动静噪·已静音');assert.match(h.get('receiver-status').textContent,/开头可能被截去/);
  h.get('monitor').checked=false;h.get('monitor').fire('change');h.api.meter({input:.1,output:0,signal:90,transmitting:true,fmRxOpen:false});assert.match(h.get('receiver-status').textContent,/耳机监听关闭/);
 });
@@ -344,4 +345,25 @@ test('loop toggle after source exhaustion cannot cancel its envelope while onend
   h.get('loop').checked=false;h.get('loop').fire('change');assert.equal(gain.events.length,events);
   h.sources.at(-1).onended();assert.equal(gain.events.length,events);
  }
+});
+
+
+test('microphone UI with real kernel keeps bypass quiet outside PTT and its bounded tail', async()=>{
+ const h=await harness();h.api.switchMode('mic');await h.api.startMic();
+ const p=h.processors.at(-1),kernel=new RadioKernel(48000,p.options.processorOptions.params,29);
+ const sync=()=>kernel.setParams(p.port.lastMessage.params);
+ h.api.applyRF('fringe');sync();
+ h.get('fm-monitor').value='open';h.get('fm-monitor').fire('change');sync();
+ h.get('monitor').checked=true;h.get('monitor').fire('change');sync();
+ const peak=x=>x.reduce((m,v)=>Math.max(m,Math.abs(v)),0);
+ assert.equal(peak(kernel.process(new Float32Array(24000))),0,'headphones alone do not generate idle hiss');
+ for(let call=0;call<2;call++){
+  h.api.ptt(true);sync();assert.ok(peak(kernel.process(new Float32Array(24000)))>.01,'PTT admits modeled FM output');
+  h.api.ptt(false);sync();const release=kernel.process(new Float32Array(48000));
+  assert.ok(peak(release.subarray(0,2400))>.001,'buffer/tail is not hard-cut at button release');
+  assert.equal(peak(release.subarray(24000)),0,'bounded release returns to exact idle silence');
+ }
+ h.get('monitor').checked=false;h.get('monitor').fire('change');sync();
+ assert.equal(p.port.lastMessage.params.receiverActive,false);
+ assert.equal(peak(kernel.process(new Float32Array(24000))),0);
 });

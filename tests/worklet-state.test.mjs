@@ -11,7 +11,7 @@ async function processorFactory() {
     constructor() { this.messages = []; this.port = { postMessage: m => this.messages.push(m) }; }
   }
   const code = (await readFile(new URL('../src/worklet.js', import.meta.url), 'utf8'))
-    .replace("import { RadioKernel } from './dsp.js?v=fm-output-boundary-v3';", '');
+    .replace("import { RadioKernel } from './dsp.js?v=fm-auto-squelch-v4';", '');
   vm.runInNewContext(code, { AudioWorkletProcessor, RadioKernel, sampleRate: rate,
     registerProcessor: (_name, cls) => { Processor = cls; } });
   return params => new Processor({ processorOptions: { params } });
@@ -122,13 +122,13 @@ test('live worklet TX gain and AGC timeline matches the offline kernel through r
  assert.equal(p.kernel.wasTransmit,false);assert.equal(p.kernel.burstCount,1);assert.equal(p.kernel.endCount,1);
 });
 
-test('worklet listening session remains open across idle PTT release and closes independently',async()=>{
+test('worklet bypass stays silent between bounded calls and honors session stop',async()=>{
  const create=await processorFactory(),params={...PRESETS.patrol,quality:90,tx:false,fmMonitor:true,receiverActive:false,tailMs:0},p=create(params),offline=new RadioKernel(rate,params);
  const events=new Map([[20,{receiverActive:true}],[100,{tx:true}],[140,{tx:false}],[350,{tx:true}],[390,{tx:false}],[600,{receiverActive:false}]]);
  for(let block=0;block<680;block++){
   if(events.has(block)){const update=events.get(block);p.port.onmessage({data:{type:'params',params:update}});offline.setParams(update);}
   const input=Float32Array.from({length:128},(_,n)=>.1*Math.sin((block*128+n)*.13)),out=new Float32Array(128);p.process([[input]],[[out]]);assert.deepEqual(out,offline.process(input));
-  if(block===80||block===300||block===550){assert.equal(latest(p).fmRxOpen,true);assert.equal(latest(p).receiverActive,true);assert.equal(latest(p).transmitting,false);}
+  if(block===80||block===300||block===550){assert.equal(latest(p).fmRxOpen,false);assert.equal(latest(p).receiverActive,true);assert.equal(latest(p).transmitting,false);}
  }
  assert.equal(latest(p).receiverActive,false);assert.equal(latest(p).fmRxOpen,false);assert.equal(latest(p).fmMonitorActive,false);assert.equal(p.kernel.burstCount,2);
 });

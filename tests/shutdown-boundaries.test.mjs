@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import {RadioKernel,renderRadio} from '../src/dsp.js';
 const peak=a=>a.reduce((m,x)=>Math.max(m,Math.abs(x)),0);
 for(const rate of [8000,44100,48000,192000])for(const afterPtt of [false,true])for(const change of [{fmMonitor:false},{receiverActive:false}]){
- test(`idle closing envelope remains smooth: ${rate} Hz, after PTT ${afterPtt}, ${Object.keys(change)[0]}`,()=>{
-  const k=new RadioKernel(rate,{quality:90,fmMonitor:true,tx:false,tailMs:0},24);
+ test(`active-call and drain closing envelope remains smooth: ${rate} Hz, after PTT ${afterPtt}, ${Object.keys(change)[0]}`,()=>{
+  const k=new RadioKernel(rate,{quality:30,fmMonitor:true,tx:true,tailMs:0},24);
   k.process(new Float32Array(Math.round(rate*.5)));
-  if(afterPtt){k.setParams({tx:true});k.process(new Float32Array(Math.round(rate*.1)));k.setParams({tx:false});k.process(new Float32Array(Math.round(rate*.5)));}
+  if(afterPtt){k.setParams({tx:false});k.process(new Float32Array(Math.round(rate*.044)));}
   const bursts=k.burstCount,ends=k.endCount;assert.ok(k.gate>.999999);k.setParams(change);
   let last=k.gate,maxStep=0;const closing=new Float32Array(Math.round(rate*.125));
   for(let i=0;i<closing.length;i++){closing[i]=k.processSample(0);assert.ok(k.gate<=last);maxStep=Math.max(maxStep,last-k.gate);last=k.gate;}
