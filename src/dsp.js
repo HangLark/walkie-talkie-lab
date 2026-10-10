@@ -1,4 +1,5 @@
-import { AnalogFM, qualityToCnrDb } from './analog-fm.js?v=fm-receiver-session-v2';
+import { applyOutputWindowFade } from './output-boundary.js?v=fm-output-boundary-v3';
+import { AnalogFM, qualityToCnrDb } from './analog-fm.js?v=fm-output-boundary-v3';
 /** Shared, allocation-free per-sample approximate radio audio kernel. Not a hardware/codec emulator. */
 export const DEFAULTS = Object.freeze({ highpass: 300, lowpass: 3000, drive: 1.4, compression: 3.5, leveler: 0, emphasis: 1.2, quality: 90, noise: 12, squelch: 18, speaker: 0, resonanceHz: 1450, resonanceQ: 1.1, body: 0, cueLevel: 65, tailMs: 110, perspective: 'receiver', radio: 'analog', permit: 'triple', output: 80, mix: 1, fmMonitor: false, receiverActive: true, fmPropagation: 'static', txInputGainDb: 0, txMicAgc: false, vox: false, gateDry: false, voxThreshold: -42, tx: true });
 // Legacy stress-test configurations; not user-facing device models or calibrated presets.
@@ -119,7 +120,7 @@ export class RadioKernel {
     this.cueSeed = ((seed >>> 0) ^ 0x51c0a7e3) >>> 0 || 1;
     this.openCue = { duration: .024, gain: .38, power: 2 };
     this.tailCue = { attack: .003, gain: .48, power: 1.5 };
-    this.fm = new AnalogFM(sampleRate, { seed: seed ^ 0x464d1234, propagation: params.fmPropagation, txInputGainDb: params.txInputGainDb, txMicAgc: params.txMicAgc }); this.fmDrainSamples = Math.ceil(sampleRate*.02); this.fmAcquire = 0; this.fmRxOpen = false; this.fmMonitorActive = false;
+    this.fm = new AnalogFM(sampleRate, { seed: seed ^ 0x464d1234, propagation: params.fmPropagation, txInputGainDb: params.txInputGainDb, txMicAgc: params.txMicAgc }); this.fmDrainSamples = Math.ceil(sampleRate*.02); this.fmAcquire = 0; this.fmRxOpen = false; this.fmMonitorActive = false; this.zeroTailPreclosed = false;
     this.rate = sampleRate; this.target = sanitizeParams(params); this.p = { ...this.target }; this.seed = seed >>> 0 || 1;
     this.hp2 = new Biquad(); this.lp2 = new Biquad(); this.presence = new Biquad(); this.hp = new Biquad(); this.lp = new Biquad(); this.noiseHP = new Biquad(); this.noiseLP = new Biquad(); this.color = new Biquad(); this.bodyEQ = new Biquad();
     this.noiseScale = Math.sqrt(sampleRate/48000);
@@ -231,7 +232,7 @@ export class RadioKernel {
       }
       const tailAge = this.releaseAge - this.delaySamples - this.fmDrainSamples;
       const tail = !transmit && !draining && tailAge >= 0 && tailAge < this.releaseLength;
-      const preclose = !transmit && this.releaseLength === 0 && this.releaseAge >= this.delaySamples + this.fmDrainSamples - Math.ceil(this.rate*.01);
+      const preclose = !transmit && draining && this.releaseLength === 0 && this.releaseAge >= this.delaySamples + this.fmDrainSamples - Math.ceil(this.rate*.01);
       // Listening-session power is independent of the remote carrier/PTT. Open
       // squelch passes the actual carrier-off FM noise for the entire session;
       // the optional automatic tail cap is not a receiver power switch.
@@ -240,7 +241,11 @@ export class RadioKernel {
       const open = t.receiverActive && !this.idleRoutePending && (this.fmMonitorActive || automaticOpen);
       this.fmRxOpen = Boolean(open);
       this.gate += ((open ? 1 : 0)-this.gate) * (1-Math.exp(-1/(this.rate*(open?(this.fmMonitorActive?.016:.003):preclose?.001:.003))));
-      if (!this.fmMonitorActive && !transmit && !draining && this.releaseLength === 0) this.gate = 0;
+      // Only finish a genuine automatic zero-tail preclose already faded below
+      // -80 dB. An open listening session can still be at unity after RF drain;
+      // closing that session/mode must retain its normal speaker envelope.
+      if (this.zeroTailPreclosed && !this.fmMonitorActive && !transmit && !draining && this.releaseLength === 0) this.gate = 0;
+      this.zeroTailPreclosed = preclose && !this.fmMonitorActive && this.gate < 1e-4;
       this.fade = this.gate;
     } else {
     this.fmRxOpen = false; this.fmMonitorActive = false;
@@ -307,5 +312,5 @@ export class RadioKernel {
 export function renderRadio(input, sampleRate, params, seed) {
   const kernel = new RadioKernel(sampleRate, { ...params, receiverActive: true }, seed), result = new Float32Array(input.length + Math.round(sampleRate*.35));
   for (let i=0; i<result.length; i++) { if (i === input.length) kernel.setParams({ tx: false }); result[i] = kernel.processSample(i<input.length ? input[i] : 0); }
-  return result;
+  return applyOutputWindowFade(result, sampleRate);
 }

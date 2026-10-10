@@ -1,3 +1,4 @@
+import { applyOutputWindowFade } from '../src/output-boundary.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {AnalogFM,AnalogMicAGC,TX_AUDIO_MODEL} from '../src/analog-fm.js';
@@ -83,7 +84,7 @@ test('TX state, low-rate internal-peak telemetry and export remain partition exa
   for(let n=0;n<x.length;n+=127){b.process(x.subarray(n,n+127),parts.subarray(n,n+127));b.fm.resetTxMeter();}
   assert.deepEqual(out,parts);assert.equal(a.fm.seed,b.fm.seed);assert.equal(a.fm.txAgc.gainDb,b.fm.txAgc.gainDb);
   const full=renderRadio(x,rate,p,77),c=new RadioKernel(rate,p,77),copy=new Float32Array(full.length);
-  for(let n=0;n<copy.length;n++){if(n===x.length)c.setParams({tx:false});copy[n]=c.processSample(x[n]||0);}assert.deepEqual(copy,full);
+  for(let n=0;n<copy.length;n++){if(n===x.length)c.setParams({tx:false});copy[n]=c.processSample(x[n]||0);}assert.deepEqual(applyOutputWindowFade(copy,rate),full);
   assert.ok(full.every(x=>Number.isFinite(x)&&Math.abs(x)<.98));
  }
  const a=new AnalogFM(8000,{txInputGainDb:24}),b=new AnalogFM(8000,{txInputGainDb:24});let peak=0;const original=b.basebandSample.bind(b);b.basebandSample=(x,c)=>{const y=original(x,c);if(c)peak=Math.max(peak,Math.abs(b.instantaneousDeviationHz));return y;};

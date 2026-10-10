@@ -1,4 +1,4 @@
-import { RadioKernel } from './dsp.js?v=fm-receiver-session-v2';
+import { RadioKernel } from './dsp.js?v=fm-output-boundary-v3';
 class RadioProcessor extends AudioWorkletProcessor {
   constructor(options) { super(); this.kernel = new RadioKernel(sampleRate, options.processorOptions?.params, options.processorOptions?.seed); this.frames = 0; this.port.onmessage = ({data}) => { if (data.type === 'params') this.kernel.setParams(data.params); }; }
   process(inputs, outputs) {

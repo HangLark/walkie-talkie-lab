@@ -1,3 +1,15 @@
+# Shutdown boundary regression checks · 2026-10-10
+
+- Reproduced before editing: 16 session/mode-close tests showed a one-sample gate collapse before the first PTT or after a zero-tail PTT; four finite-recording tests ended at a nonzero sample. The new tests inspect every closing gate step, not just a late silence sample.
+- Automatic zero-tail completion now clamps only a genuine preclose already below 1e-4 gain. Open-session and mode closures retain the existing 3 ms exponential speaker release; receiver/PTT/detector timing and the fixed 24 ms voice buffer are unchanged.
+- `src/output-boundary.js` defines a separate 10 ms linear capture/playback endpoint envelope. It leaves source-plus-350 ms recording length unchanged and makes the final stored sample exactly zero. Samples before the envelope are unchanged. This is application-boundary protection, not modeled RF squelch, a forced PTT hiss, an FFT guarantee or a hardware claim.
+- Shared render and WAV-worker paths apply the same envelope; matched snapshots inherit it once through `renderRadio`. Kernel-only partition tests remain exact, and complete recording comparisons explicitly apply the boundary envelope. Live playback uses the same envelope contract; browser callback timing is not claimed to be full-waveform/sample-exact with offline rendering.
+- Direct old/new automatic-kernel comparison: 1,840,230 samples identical over 8/44.1/48/192 kHz, quality 30/90/100 and tail 0/110/200 ms, including idle, key-down and release. Independent review additionally compared 1,305,600 samples including re-key without differences.
+- Reproduced 48 kHz open recording (48,000 zero input samples, quality 90, tail 0, seed 24): endpoint changed from +0.64498055 to exactly 0; length remains 64,800 samples. Noiseless quality-100 zero input remains exactly zero. Regression envelope checks include 8/44.1/48/192 kHz and empty/short buffers.
+- These are synthetic cloud-workspace checks. Physical microphone/headphone listening, real-browser audio scheduling and a hardware-radio comparison remain separate, unperformed verification.
+
+---
+
 # Receiver-session correction · 2026-10-10
 
 Work remained in the cloud workspace, restored from public source commit c3bf59fc7a194794a8d6de2f070600445937b1cd. No personal microphone or user computer was accessed; no publication is implied by this report.

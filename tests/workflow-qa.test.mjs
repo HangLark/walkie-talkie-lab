@@ -2,22 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
+import { OUTPUT_FADE_SECONDS, outputFadeSamples } from '../src/output-boundary.js';
 import {DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel} from '../src/dsp.js';
 async function harness({cryptoAvailable=true,fetchImpl}={}){
  let entropy=100;
- const elements=new Map(),workers=[],sources=[],processors=[],downloads=[],timers=[];
+ const elements=new Map(),workers=[],sources=[],processors=[],downloads=[],timers=[],gains=[];
  function element(id=''){const handlers=new Map(),classes=new Set();return {id,tagName:'DIV',style:{setProperty(){}},children:[],dataset:{},checked:false,disabled:false,value:0,classList:{add(x){classes.add(x);},remove(x){classes.delete(x);},contains(x){return classes.has(x);},toggle(x,v){if(v)classes.add(x);else classes.delete(x);}},addEventListener(n,f){handlers.set(n,f);},fire(n,event={}){return handlers.get(n)?.({target:this,preventDefault(){},...event});},setAttribute(){},append(e){this.children.push(e);},querySelector(){return element();},getBoundingClientRect(){return {width:0};},click(){downloads.push(this.download);}};}
  const get=id=>{if(!elements.has(id))elements.set(id,element(id));return elements.get(id);};
  const document={...element(),getElementById:get,createElement:element,querySelectorAll:()=>[],querySelector:element};
- const gain=()=>({value:1,setTargetAtTime(v){this.value=v;},setValueAtTime(v){this.value=v;},cancelScheduledValues(){},linearRampToValueAtTime(v){this.value=v;}});
+ const gain=()=>({value:1,events:[],setTargetAtTime(v,t){this.value=v;this.events.push(['target',v,t]);},setValueAtTime(v,t){this.value=v;this.events.push(['set',v,t]);},cancelScheduledValues(t){this.events.push(['cancel',t]);},linearRampToValueAtTime(v,t){this.value=v;this.events.push(['ramp',v,t]);}});
  const buffer=(duration=10)=>({sampleRate:48000,duration,length:duration*48000,numberOfChannels:1,getChannelData:()=>new Float32Array(duration*48000).fill(.1)});
- const context={sampleRate:48000,audioWorklet:{addModule:async()=>{}},currentTime:0,resume:async()=>{},close(){},createGain:()=>({gain:gain(),connect(){},disconnect(){}}),createBuffer:(channels,length,sampleRate)=>({length,sampleRate,duration:length/sampleRate,copyToChannel(){},getChannelData:()=>new Float32Array(length)}),createMediaStreamSource:()=>({connect(){},disconnect(){}}),createBufferSource:()=>{const s={connect(){},disconnect(){this.disconnected=true;},start(at,offset){this.offset=offset;},stop(){this.stopped=true;}};sources.push(s);return s;}};
+ const context={sampleRate:48000,audioWorklet:{addModule:async()=>{}},currentTime:0,resume:async()=>{},close(){},createGain:()=>{const node={gain:gain(),connect(){},disconnect(){this.disconnected=true;}};gains.push(node);return node;},createBuffer:(channels,length,sampleRate)=>({length,sampleRate,duration:length/sampleRate,copyToChannel(){},getChannelData:()=>new Float32Array(length)}),createMediaStreamSource:()=>({connect(){},disconnect(){}}),createBufferSource:()=>{const s={connect(){},disconnect(){this.disconnected=true;},start(at,offset){this.startAt=at;this.offset=offset;},stop(at){this.stopAt=at;this.stopped=true;}};sources.push(s);return s;}};
  class Worker{constructor(){workers.push(this);}postMessage(data){this.sent=data;}terminate(){this.terminated=true;}}
- class AudioWorkletNode{constructor(c,n,options){this.options=options;this.port={postMessage(message){this.lastMessage=message;},close(){}};processors.push(this);}connect(){}disconnect(){this.disconnected=true;}}
- const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
- const scope={fetch:fetchImpl,AbortController,crypto:cryptoAvailable?{getRandomValues(a){a[0]=++entropy;return a;}}:undefined,navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){},addEventListener(){}}]})}},document,window:{...element(),isSecureContext:true},DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,AudioWorkletNode,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(fn,ms){timers.push({fn,ms});return timers.length-1;},clearTimeout(id){if(timers[id])timers[id].cancelled=true;},URL:class extends URL{static createObjectURL(){return 'blob:test';}static revokeObjectURL(){}},Blob,Float32Array,Math};
+ class AudioWorkletNode{constructor(c,n,options){this.options=options;this.port={postMessage(message){this.lastMessage=message;},close(){this.closed=true;}};processors.push(this);}connect(){}disconnect(){this.disconnected=true;}}
+ const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
+ const scope={OUTPUT_FADE_SECONDS,outputFadeSamples,fetch:fetchImpl,AbortController,crypto:cryptoAvailable?{getRandomValues(a){a[0]=++entropy;return a;}}:undefined,navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){},addEventListener(){}}]})}},document,window:{...element(),isSecureContext:true},DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,AudioWorkletNode,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(fn,ms){timers.push({fn,ms});return timers.length-1;},clearTimeout(id){if(timers[id])timers[id].cancelled=true;},URL:class extends URL{static createObjectURL(){return 'blob:test';}static revokeObjectURL(){}},Blob,Float32Array,Math};
  vm.runInNewContext(code+`\nglobalThis.api={controls,format,cnrLabel,meter,calibrateInput,undoInputCalibration,ensureAudio,resetContext(){context=null;initPromise=null;},loadFile,createTakeSeed,demo,humanDemo,startMic,stopMic,prepareMatch,matchKey,checkComparison,ptt,get fileSeed(){return fileSeed;},get micSeed(){return micSeed;},applyPreset,applyRF,updateControls,playFile,stopPlayback,switchMode,setFile,exportWav,finishExport,setup(c,b){context=c;monitorGain=c.createGain();setFile(b,'original.wav');},get params(){return params;},get playing(){return playing;},get pausedAt(){return pausedAt;},get exportBusy(){return exportBusy;}};`,scope);
- scope.api.setup(context,buffer());return {...scope,get,workers,sources,processors,downloads,timers,context,buffer};
+ scope.api.setup(context,buffer());return {...scope,get,workers,sources,processors,downloads,timers,gains,context,buffer};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 test('QA: voice profile preserves active processor, position and unrelated dimensions; paused selection stays paused',async()=>{
@@ -251,13 +252,53 @@ test('microphone Stop, hidden page, pagehide and source switch stop fake hardwar
  }
 });
 
-test('file natural end preserves only 350 ms receiver postroll; Stop, hide and restart cannot leave an old receiver active',async()=>{
- const h=await harness();h.api.params.fmMonitor=true;await h.api.playFile();const first=h.processors.at(-1);h.sources.at(-1).onended();
- assert.equal(first.port.lastMessage.params.tx,false);assert.equal(first.port.lastMessage.params.receiverActive,true);assert.equal(h.get('stop').disabled,false);const timer=h.timers.find(t=>t.ms===350&&!t.cancelled);assert.ok(timer);timer.fn();assert.equal(first.port.lastMessage.params.receiverActive,false);assert.equal(first.disconnected,true);
- await h.api.playFile();const second=h.processors.at(-1);h.sources.at(-1).onended();const oldTimer=h.timers.filter(t=>t.ms===350&&!t.cancelled).at(-1);
- await h.api.playFile();const third=h.processors.at(-1);oldTimer.fn();assert.equal(third.disconnected,undefined);assert.equal(third.port.lastMessage.params.receiverActive,true);assert.equal(second.disconnected,true);
- h.get('stop').fire('click');assert.equal(third.port.lastMessage.params.receiverActive,false);assert.equal(third.disconnected,true);
- await h.api.playFile();const fourth=h.processors.at(-1);h.document.hidden=true;h.document.fire('visibilitychange');assert.equal(fourth.disconnected,true);assert.equal(fourth.port.lastMessage.params.receiverActive,false);assert.equal(h.api.playing,false);
+test('file natural end schedules a fixed audio-clock envelope before onended and only cleans up after silence',async()=>{
+ const h=await harness();h.api.params.fmMonitor=true;await h.api.playFile();const processor=h.processors.at(-1),gain=h.gains.at(-1).gain;
+ const ramp=gain.events.find(e=>e[0]==='ramp');assert.deepEqual(ramp,['ramp',0,(480000+16800-1)/48000]);
+ assert.ok(gain.events.some(e=>e[0]==='set'&&e[1]===1&&e[2]===10.34));
+ // onended may arrive late; it must neither extend nor reapply the envelope.
+ h.context.currentTime=10.12;h.sources.at(-1).onended();
+ assert.equal(processor.port.lastMessage.params.tx,false);assert.equal(processor.port.lastMessage.params.receiverActive,true);assert.equal(h.get('stop').disabled,false);
+ const timer=h.timers.at(-1);assert.ok(Math.abs(timer.ms-230)<1e-8);h.context.currentTime=10.349;timer.fn();assert.equal(processor.disconnected,undefined);
+ h.context.currentTime=10.35;h.timers.at(-1).fn();assert.equal(processor.disconnected,true);assert.equal(processor.port.closed,true);assert.equal(h.get('stop').disabled,true);
+ assert.equal(gain.events.filter(e=>e[0]==='ramp').length,1);
+});
+
+test('Stop, pause, hidden page, new file and route changes fade only the retiring file graph',async()=>{
+ for(const action of ['stop','pause','hide','replace','route','mode']){
+  const h=await harness();await h.api.playFile();h.context.currentTime=2;
+  const old=h.processors.at(-1),oldSource=h.sources.at(-1),oldGain=h.gains.at(-1),monitor=h.gains[0];
+  const monitorEvents=monitor.gain.events.length;
+  if(action==='stop')h.get('stop').fire('click');
+  if(action==='pause')await h.api.playFile();
+  if(action==='hide'){h.document.hidden=true;h.document.fire('visibilitychange');}
+  if(action==='replace')h.api.setFile(h.buffer(2),'replacement.wav');
+  if(action==='route'){h.get('perspective').value='operator';h.get('perspective').fire('change');await tick();}
+  if(action==='mode')h.api.switchMode('mic');
+  assert.deepEqual(oldGain.gain.events.slice(-3),[['cancel',2],['set',1,2],['ramp',0,2.01]],action);
+  assert.equal(oldSource.stopAt,2.01,action);assert.equal(old.disconnected,undefined,action);
+  if(action!=='route')assert.equal(monitor.gain.events.length,monitorEvents,action);
+  const cleanup=h.timers.find(t=>Math.abs(t.ms-10)<1e-8&&!t.cancelled);assert.ok(cleanup,action);
+  h.context.currentTime=2.011;cleanup.fn();assert.equal(old.disconnected,true,action);assert.equal(oldGain.disconnected,true,action);
+ }
+});
+
+test('late cleanup and source completion cannot mute or disconnect a newer playback',async()=>{
+ const h=await harness();await h.api.playFile();const oldSource=h.sources.at(-1),lateEnd=oldSource.onended;
+ h.context.currentTime=10;lateEnd();const oldDrain=h.timers.at(-1);
+ await h.api.playFile();const fresh=h.processors.at(-1),freshGain=h.gains.at(-1),events=freshGain.gain.events.length;
+ h.context.currentTime=10.02;for(const timer of [...h.timers])timer.fn();lateEnd();oldDrain.fn();
+ assert.equal(fresh.disconnected,undefined);assert.equal(freshGain.disconnected,undefined);assert.equal(freshGain.gain.events.length,events);assert.equal(h.api.playing,true);
+});
+
+test('looping has no end fade and disabling loop schedules the actual current cycle end',async()=>{
+ const h=await harness();h.get('loop').checked=true;await h.api.playFile();const gain=h.gains.at(-1).gain;
+ assert.equal(gain.events.filter(e=>e[0]==='ramp').length,0);
+ h.context.currentTime=23;h.get('loop').checked=false;h.get('loop').fire('change');
+ assert.deepEqual(gain.events.at(-1),['ramp',0,(30*48000+16800-1)/48000]);
+ h.context.currentTime=24;h.get('loop').checked=true;h.get('loop').fire('change');
+ assert.deepEqual(gain.events.slice(-2),[['cancel',24],['set',1,24]]);
+ h.get('loop').checked=false;h.get('loop').fire('change');assert.equal(gain.events.at(-1)[2],(30*48000+16800-1)/48000);
 });
 
 test('receiver status separates active idle open listening, automatic mute, muted monitor and snapshot telemetry',async()=>{
@@ -273,4 +314,34 @@ test('pending draining path never labels old operator output as live open FM',as
  h.api.meter({input:0,output:0,signal:90,transmitting:false,fmRxOpen:false,fmMonitorActive:false,activePerspective:'operator',activeRadio:'analog'});
  assert.equal(h.get('carrier-text').textContent,'待切换');assert.match(h.get('receiver-status').textContent,/当前通话结束后切换/);assert.doesNotMatch(h.get('receiver-status').textContent,/持续开放/);
  h.api.params.fmPropagation='moving';h.api.ptt(true);h.api.meter({input:.1,output:.1,signal:90,transmitting:true,txDeviationPeakHz:2000,fmInstantCnrDb:12,activePerspective:'operator',activeRadio:'analog'});assert.equal(h.get('tx-deviation-value').textContent,'—');assert.match(h.get('channel-state').textContent,/无此路径的实时信道读数/);assert.equal(h.get('quality-screen').textContent,'—');
+});
+
+
+test('Stop during the final fade preserves current level and never extends the finite window',async()=>{
+ const h=await harness();await h.api.playFile();h.context.currentTime=10;h.sources.at(-1).onended();
+ const gain=h.gains.at(-1).gain;h.context.currentTime=10.345;h.get('stop').fire('click');
+ const events=gain.events.slice(-3),end=(496800-1)/48000;
+ assert.equal(events[0][0],'cancel');assert.equal(events[1][0],'set');assert.ok(events[1][1]>.49&&events[1][1]<.51);
+ assert.deepEqual(events[2],['ramp',0,end]);
+});
+
+test('suspended and closed contexts release retired nodes without waiting on a stopped clock',async()=>{
+ for(const state of ['suspended','closed']){const h=await harness();await h.api.playFile();h.context.currentTime=2;h.api.stopPlayback();const old=h.processors.at(-1);h.context.state=state;h.timers.at(-1).fn();assert.equal(old.disconnected,true);}
+});
+
+
+test('22050 Hz preview uses the same rounded postroll and final-sample endpoint as export',async()=>{
+ const h=await harness();h.context.sampleRate=22050;await h.api.playFile();
+ assert.deepEqual(h.gains.at(-1).gain.events.at(-1),['ramp',0,(220500+Math.round(22050*.35)-1)/22050]);
+});
+
+
+test('loop toggle after source exhaustion cannot cancel its envelope while onended is delayed',async()=>{
+ for(const at of [10,10.2,10.345,11]){
+  const h=await harness();await h.api.playFile();const gain=h.gains.at(-1).gain,events=gain.events.length;
+  h.context.currentTime=at;h.get('loop').checked=true;h.get('loop').fire('change');
+  assert.equal(gain.events.length,events);assert.deepEqual(gain.events.at(-1),['ramp',0,(496800-1)/48000]);
+  h.get('loop').checked=false;h.get('loop').fire('change');assert.equal(gain.events.length,events);
+  h.sources.at(-1).onended();assert.equal(gain.events.length,events);
+ }
 });

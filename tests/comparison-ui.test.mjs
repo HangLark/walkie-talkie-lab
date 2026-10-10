@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
+import { OUTPUT_FADE_SECONDS, outputFadeSamples } from '../src/output-boundary.js';
 import {DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel} from '../src/dsp.js';
 async function harness(){
  const elements=new Map(),workers=[],sources=[],timers=[];
@@ -9,10 +10,10 @@ async function harness(){
  const get=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
  const document={...element(),getElementById:get,createElement:element,querySelectorAll:()=>[],querySelector:element};
  const gain=()=>({value:1,setTargetAtTime(){},setValueAtTime(v){this.value=v;},cancelScheduledValues(){},linearRampToValueAtTime(v){this.value=v;}});
- const context={currentTime:0,resume:async()=>{},createGain:()=>({gain:gain(),connect(){},disconnect(){}}),createBuffer:(channels,length,sampleRate)=>({length,sampleRate,duration:length/sampleRate,copyToChannel(){}}),createBufferSource:()=>{const s={connect(){},disconnect(){this.disconnected=true;},start(at,offset){this.offset=offset;},stop(){this.stopped=true;}};sources.push(s);return s;}};
+ const context={sampleRate:48000,currentTime:0,resume:async()=>{},createGain:()=>({gain:gain(),connect(){},disconnect(){}}),createBuffer:(channels,length,sampleRate)=>({length,sampleRate,duration:length/sampleRate,copyToChannel(){}}),createBufferSource:()=>{const s={connect(){},disconnect(){this.disconnected=true;},start(at,offset){this.offset=offset;},stop(){this.stopped=true;}};sources.push(s);return s;}};
  class Worker{constructor(){workers.push(this);}postMessage(data){this.sent=data;}terminate(){this.terminated=true;}}
- const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
- const scope={document,window:element(),DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout:f=>{timers.push(f);return timers.length-1;},clearTimeout:i=>{timers[i]=null;},URL,Float32Array,Math};
+ const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
+ const scope={OUTPUT_FADE_SECONDS,outputFadeSamples,document,window:element(),DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,Worker,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout:f=>{timers.push(f);return timers.length-1;},clearTimeout:i=>{timers[i]=null;},URL,Float32Array,Math};
  vm.runInNewContext(code+`\nglobalThis.api={calibrateInput,applyPreset,applyRF,prepareMatch,cancelComparison,checkComparison,playFile,stopPlayback,switchMode,sendParams,setup(c){context=c;monitorGain=c.createGain();fileBuffer={sampleRate:48000,duration:1,length:48000};monoSamples=new Float32Array(48000).fill(.1);},ready(){return !!comparison;},get params(){return params;},get worker(){return comparisonWorker;},get playing(){return playing;},get pausedAt(){return pausedAt;},setWorklet(w){worklet=w;}};`,scope);
  scope.api.setup(context);return {...scope,get,workers,sources,timers,context};
 }

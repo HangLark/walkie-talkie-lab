@@ -1,3 +1,4 @@
+import { applyOutputWindowFade } from '../src/output-boundary.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {RadioKernel,DEFAULTS,renderRadio} from '../src/dsp.js';
@@ -97,7 +98,7 @@ test('finite open-squelch recording includes its full 350 ms capture window and 
   const out=renderRadio(input,rate,params,72);assert.equal(out.length,input.length+Math.round(rate*.35));assert.ok(rms(out.subarray(out.length-Math.round(rate*.05)))>.05);
   assert.ok(out.every(x=>Number.isFinite(x)&&Math.abs(x)<.98));
   const k=new RadioKernel(rate,{...params,receiverActive:true},72),actual=new Float32Array(out.length);
-  for(let n=0;n<actual.length;n++){if(n===input.length)k.setParams({tx:false});actual[n]=k.processSample(input[n]||0);}assert.deepEqual(out,actual);
+  for(let n=0;n<actual.length;n++){if(n===input.length)k.setParams({tx:false});actual[n]=k.processSample(input[n]||0);}assert.deepEqual(out,applyOutputWindowFade(actual,rate));
  }
 });
 

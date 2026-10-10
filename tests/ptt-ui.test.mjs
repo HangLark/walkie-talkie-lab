@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
+import { OUTPUT_FADE_SECONDS, outputFadeSamples } from '../src/output-boundary.js';
 import {DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel} from '../src/dsp.js';
 async function harness(){
  const elements=new Map(),messages=[];
@@ -14,8 +15,8 @@ async function harness(){
  const get=id=>{if(!elements.has(id))elements.set(id,element(id));return elements.get(id);};
  const document={...element(),getElementById:get,createElement:()=>element(),querySelectorAll:()=>[],querySelector:()=>element(),hidden:false};
  const window={...element()};
- const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
- const scope={document,window,DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(){},URL,Float32Array,Math};
+ const code=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'').replaceAll('import.meta.url',"'https://example.test/src/app.js'");
+ const scope={OUTPUT_FADE_SECONDS,outputFadeSamples,document,window,DEFAULTS,TIMBRE_PROFILES,TIMBRE_KEYS,CHANNEL_PROFILES,applyTimbre,applyChannel,requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(){},URL,Float32Array,Math};
  vm.runInNewContext(code+`\nglobalThis.api={ptt,applyPreset,startMic,stopMic,setup(){mode='mic';stream={getTracks:()=>[]};worklet={port:{postMessage:m=>messages.push(m),close(){}},disconnect(){}};},get params(){return params;}};`,Object.assign(scope,{messages}));
  scope.api.setup();return {...scope,get,messages};
 }
